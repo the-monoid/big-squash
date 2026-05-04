@@ -14,9 +14,12 @@ namespace Steading.EditorTools
     {
         private const string ScenesDir = "Assets/_Project/Scenes";
         private const string PrefabsDir = "Assets/_Project/Prefabs";
+        private const string ArtDir = "Assets/_Project/Art";
         private const string BootstrapScenePath = ScenesDir + "/Bootstrap.unity";
         private const string WorldScenePath = ScenesDir + "/World_Test.unity";
         private const string PlayerPrefabPath = PrefabsDir + "/Player.prefab";
+        private const string PillTexturePath = ArtDir + "/CapsulePill.png";
+        private const string PillMaterialPath = ArtDir + "/CapsulePill.mat";
 
         [MenuItem("Steading/M1: Generate Bootstrap, World, and Player")]
         public static void GenerateAll()
@@ -38,8 +41,10 @@ namespace Steading.EditorTools
 
             EnsureDir(ScenesDir);
             EnsureDir(PrefabsDir);
+            EnsureDir(ArtDir);
 
-            var playerPrefab = CreatePlayerPrefab();
+            var pillMaterial = GetOrCreatePillMaterial();
+            var playerPrefab = CreatePlayerPrefab(pillMaterial);
             CreateWorldTestScene();
             CreateBootstrapScene(playerPrefab);
             AddScenesToBuildSettings();
@@ -57,7 +62,7 @@ namespace Steading.EditorTools
             EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Single);
         }
 
-        private static GameObject CreatePlayerPrefab()
+        private static GameObject CreatePlayerPrefab(Material visualMaterial)
         {
             var root = new GameObject("Player");
             root.transform.position = Vector3.zero;
@@ -68,6 +73,10 @@ namespace Steading.EditorTools
             Object.DestroyImmediate(visual.GetComponent<CapsuleCollider>());
             visual.transform.SetParent(root.transform, false);
             visual.transform.localPosition = new Vector3(0f, 1f, 0f);
+            if (visualMaterial != null)
+            {
+                visual.GetComponent<MeshRenderer>().sharedMaterial = visualMaterial;
+            }
 
             // Camera pivot at chest height. PlayerController applies cameraOffset
             // (0, 0.3, -3.5) at runtime so the camera sits behind/above the player
@@ -167,6 +176,64 @@ namespace Steading.EditorTools
             var cam = go.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.Skybox;
             go.AddComponent<AudioListener>();
+        }
+
+        // Generates a horizontal two-tone texture (orange bottom, white top) and
+        // a URP/Lit material referencing it. Result: capsule mesh looks like a
+        // pharmaceutical pill capsule when applied. Capsule UVs map V along the
+        // mesh's Y axis, so a horizontal stripe in the texture becomes a
+        // horizontal band on the capsule at the equator.
+        private static Material GetOrCreatePillMaterial()
+        {
+            // Idempotent — return existing if we've already generated it.
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(PillMaterialPath);
+            if (existing != null) return existing;
+
+            // Build the texture in memory: 4-px wide x 256 tall, hard split at the midline.
+            const int width = 4;
+            const int height = 256;
+            var tex = new Texture2D(width, height, TextureFormat.RGBA32, mipChain: false, linear: false);
+            var bottom = new Color32(0xE6, 0x6B, 0x2C, 0xFF); // warm orange
+            var top    = new Color32(0xF8, 0xF8, 0xF8, 0xFF); // off-white
+            var pixels = new Color32[width * height];
+            for (int y = 0; y < height; y++)
+            {
+                var color = (y < height / 2) ? bottom : top;
+                for (int x = 0; x < width; x++) pixels[y * width + x] = color;
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply(updateMipmaps: false);
+
+            // Persist as PNG asset so the prefab can reference it.
+            var pngBytes = tex.EncodeToPNG();
+            File.WriteAllBytes(Path.Combine(Directory.GetCurrentDirectory(), PillTexturePath), pngBytes);
+            Object.DestroyImmediate(tex);
+
+            AssetDatabase.ImportAsset(PillTexturePath, ImportAssetOptions.ForceSynchronousImport);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(PillTexturePath);
+            if (importer != null)
+            {
+                importer.textureType = TextureImporterType.Default;
+                importer.filterMode = FilterMode.Point;     // keep the stripe edge sharp
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.mipmapEnabled = false;
+                importer.sRGBTexture = true;
+                importer.SaveAndReimport();
+            }
+            var loadedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(PillTexturePath);
+
+            // Build a URP/Lit material referencing the texture. Fall back to the
+            // Built-in Standard shader if URP isn't installed (shouldn't happen,
+            // but keeps the script defensive).
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            var mat = new Material(shader) { name = "CapsulePill" };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", loadedTex);
+            if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", loadedTex);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.55f);
+
+            AssetDatabase.CreateAsset(mat, PillMaterialPath);
+            AssetDatabase.SaveAssets();
+            return mat;
         }
     }
 }
