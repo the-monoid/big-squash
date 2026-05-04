@@ -9,7 +9,7 @@
     }
   ],
   "dependencies": {
-    "com.neuecc.messagepack": "2.5.187",
+    "com.neuecc.messagepack": "2.5.140",
     "com.unity.ai.navigation": "2.0.6",
     "com.unity.ide.rider": "3.0.31",
     "com.unity.ide.visualstudio": "2.0.22",
