@@ -21,6 +21,21 @@ namespace Steading.EditorTools
         [MenuItem("Steading/M1: Generate Bootstrap, World, and Player")]
         public static void GenerateAll()
         {
+            if (Application.isPlaying)
+            {
+                EditorUtility.DisplayDialog(
+                    "Steading M1 Setup",
+                    "Cannot run while Play mode is active. Stop Play (Ctrl+P) and try again.",
+                    "OK");
+                return;
+            }
+
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            {
+                Debug.Log("[Steading] M1 setup cancelled (unsaved scene changes).");
+                return;
+            }
+
             EnsureDir(ScenesDir);
             EnsureDir(PrefabsDir);
 
