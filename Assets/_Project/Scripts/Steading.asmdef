@@ -1,0 +1,20 @@
+{
+    "name": "Steading",
+    "rootNamespace": "Steading",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.mirror-networking.mirror",
+            "expression": "",
+            "define": "MIRROR"
+        }
+    ],
+    "noEngineReferences": false
+}

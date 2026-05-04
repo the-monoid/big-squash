@@ -1,0 +1,49 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Asset meta-data is required for collaboration; do NOT ignore .meta files
+
+# Visual Studio / Rider / VSCode
+.vs/
+.idea/
+.vscode/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Crash logs
+sysinfo.txt
+*.stackdump
+
+# Unity Cloud / Collab
+crashlytics-build.properties
+
+# Server local data
+Server/world_data/
+Server/logs/
+
+# Local secrets
+*.env
+*.env.local
+secrets.json
