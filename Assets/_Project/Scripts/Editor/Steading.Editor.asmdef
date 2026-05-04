@@ -5,7 +5,9 @@
         "Steading",
         "Mirror",
         "Mirror.Components",
-        "Mirror.Transports"
+        "Mirror.Transports",
+        "Unity.AI.Navigation",
+        "Unity.AI.Navigation.Editor"
     ],
     "includePlatforms": [
         "Editor"
