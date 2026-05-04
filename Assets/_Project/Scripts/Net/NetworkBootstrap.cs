@@ -1,18 +1,11 @@
-using UnityEngine;
-
-#if MIRROR
+using kcp2k;
 using Mirror;
-#endif
+using UnityEngine;
 
 namespace Steading.Net
 {
-#if MIRROR
     public class NetworkBootstrap : NetworkManager
     {
-        [Header("Steading")]
-        [SerializeField] private int defaultTickRate = 30;
-        [SerializeField] private ushort defaultPort = 7777;
-
         public override void Awake()
         {
             base.Awake();
@@ -41,7 +34,7 @@ namespace Steading.Net
 
         private void SetTransportPort(ushort port)
         {
-            if (transport is kcp2k.KcpTransport kcp)
+            if (transport is KcpTransport kcp)
             {
                 kcp.Port = port;
             }
@@ -50,7 +43,7 @@ namespace Steading.Net
         public override void OnStartServer()
         {
             base.OnStartServer();
-            Debug.Log($"[Steading.Net] Server started on port {defaultPort}, tickrate {sendRate}Hz, max {maxConnections} players");
+            Debug.Log($"[Steading.Net] Server started, tickrate {sendRate}Hz, max {maxConnections} players");
         }
 
         public override void OnServerConnect(NetworkConnectionToClient conn)
@@ -65,18 +58,4 @@ namespace Steading.Net
             base.OnServerDisconnect(conn);
         }
     }
-#else
-    // Mirror is not yet imported. Once you install Mirror via Package Manager,
-    // the MIRROR define is auto-added and this class is replaced by the real
-    // implementation above. This stub exists so the project compiles before
-    // Mirror is installed.
-    public class NetworkBootstrap : MonoBehaviour
-    {
-        private void Awake()
-        {
-            Debug.LogWarning("[Steading.Net] Mirror not installed; NetworkBootstrap is inactive. " +
-                             "Install Mirror via Package Manager to enable networking.");
-        }
-    }
-#endif
 }

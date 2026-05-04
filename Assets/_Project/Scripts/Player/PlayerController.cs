@@ -1,13 +1,10 @@
-using UnityEngine;
-
-#if MIRROR
 using Mirror;
-#endif
+using UnityEngine;
 
 namespace Steading.Player
 {
-#if MIRROR
     [RequireComponent(typeof(CharacterController))]
+    [RequireComponent(typeof(PlayerInput))]
     public class PlayerController : NetworkBehaviour
     {
         [Header("Movement")]
@@ -15,10 +12,15 @@ namespace Steading.Player
         [SerializeField] private float runSpeed = 7f;
         [SerializeField] private float jumpHeight = 1.4f;
         [SerializeField] private float gravity = -20f;
+        [SerializeField] private float mouseLookSpeed = 2.2f;
+
+        [Header("Camera")]
+        [SerializeField] private Transform cameraPivot;
 
         private CharacterController _cc;
-        private Vector3 _velocity;
         private PlayerInput _input;
+        private Vector3 _velocity;
+        private float _pitch;
 
         private void Awake()
         {
@@ -29,23 +31,32 @@ namespace Steading.Player
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
-            // Bind camera to local player here in M1+ work.
+            if (Camera.main != null && cameraPivot != null)
+            {
+                Camera.main.transform.SetParent(cameraPivot, worldPositionStays: false);
+                Camera.main.transform.localPosition = Vector3.zero;
+                Camera.main.transform.localRotation = Quaternion.identity;
+            }
+            Cursor.lockState = CursorLockMode.Locked;
         }
 
-        // Server-authoritative movement: client sends inputs, server moves.
-        // For M1 we run a simple shared CharacterController on the owner and let
-        // NetworkTransform replicate position. M2 will introduce CmdMove for
-        // anti-cheat hardening.
+        // M1: owner-driven movement with NetworkTransform replicating to others.
+        // M2 will introduce server-authoritative CmdMove for anti-cheat.
         private void Update()
         {
             if (!isLocalPlayer) return;
 
-            var move = _input.MoveAxis;
-            var sprint = _input.SprintHeld;
-            var speed = sprint ? runSpeed : walkSpeed;
+            var look = _input.LookAxis * mouseLookSpeed;
+            transform.Rotate(0f, look.x, 0f);
+            if (cameraPivot != null)
+            {
+                _pitch = Mathf.Clamp(_pitch - look.y, -85f, 85f);
+                cameraPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
+            }
 
-            var motion = transform.right * move.x + transform.forward * move.y;
-            motion *= speed;
+            var move = _input.MoveAxis;
+            var speed = _input.SprintHeld ? runSpeed : walkSpeed;
+            var motion = (transform.right * move.x + transform.forward * move.y) * speed;
 
             if (_cc.isGrounded && _velocity.y < 0f) _velocity.y = -2f;
             if (_input.JumpPressed && _cc.isGrounded)
@@ -54,10 +65,7 @@ namespace Steading.Player
             }
             _velocity.y += gravity * Time.deltaTime;
 
-            _cc.Move((motion + new Vector3(0, _velocity.y, 0)) * Time.deltaTime);
+            _cc.Move((motion + Vector3.up * _velocity.y) * Time.deltaTime);
         }
     }
-#else
-    public class PlayerController : MonoBehaviour { }
-#endif
 }

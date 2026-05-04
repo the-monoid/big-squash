@@ -1,12 +1,15 @@
 {
-    "name": "Steading",
-    "rootNamespace": "Steading",
+    "name": "Steading.Editor",
+    "rootNamespace": "Steading.EditorTools",
     "references": [
+        "Steading",
         "Mirror",
         "Mirror.Components",
         "Mirror.Transports"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
