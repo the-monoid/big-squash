@@ -16,6 +16,7 @@ namespace Steading.Player
 
         [Header("Camera")]
         [SerializeField] private Transform cameraPivot;
+        [SerializeField] private Vector3 cameraOffset = new Vector3(0f, 0.3f, -3.5f);
 
         private CharacterController _cc;
         private PlayerInput _input;
@@ -34,7 +35,7 @@ namespace Steading.Player
             if (Camera.main != null && cameraPivot != null)
             {
                 Camera.main.transform.SetParent(cameraPivot, worldPositionStays: false);
-                Camera.main.transform.localPosition = Vector3.zero;
+                Camera.main.transform.localPosition = cameraOffset;
                 Camera.main.transform.localRotation = Quaternion.identity;
             }
             Cursor.lockState = CursorLockMode.Locked;

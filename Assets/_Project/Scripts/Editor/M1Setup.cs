@@ -69,10 +69,13 @@ namespace Steading.EditorTools
             visual.transform.SetParent(root.transform, false);
             visual.transform.localPosition = new Vector3(0f, 1f, 0f);
 
-            // Camera pivot at head height for first-person view.
+            // Camera pivot at chest height. PlayerController applies cameraOffset
+            // (0, 0.3, -3.5) at runtime so the camera sits behind/above the player
+            // (third-person, Valheim-style). Mouse Y pitches the pivot, so the
+            // camera orbits this anchor.
             var pivot = new GameObject("CameraPivot");
             pivot.transform.SetParent(root.transform, false);
-            pivot.transform.localPosition = new Vector3(0f, 1.7f, 0f);
+            pivot.transform.localPosition = new Vector3(0f, 1.5f, 0f);
 
             var cc = root.AddComponent<CharacterController>();
             cc.height = 1.8f;
