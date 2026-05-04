@@ -2,12 +2,15 @@
 * text=auto eol=lf
 
 # Unity binary scenes/prefabs/assets via LFS
-*.unity   filter=lfs diff=lfs merge=lfs -text
-*.prefab  filter=lfs diff=lfs merge=lfs -text
-*.asset   filter=lfs diff=lfs merge=lfs -text
-*.anim    filter=lfs diff=lfs merge=lfs -text
-*.controller filter=lfs diff=lfs merge=lfs -text
-*.mat     filter=lfs diff=lfs merge=lfs -text
+Assets/**/*.unity   filter=lfs diff=lfs merge=lfs -text
+Assets/**/*.prefab  filter=lfs diff=lfs merge=lfs -text
+Assets/**/*.asset   filter=lfs diff=lfs merge=lfs -text
+Assets/**/*.anim    filter=lfs diff=lfs merge=lfs -text
+Assets/**/*.controller filter=lfs diff=lfs merge=lfs -text
+Assets/**/*.mat     filter=lfs diff=lfs merge=lfs -text
+
+# ProjectSettings/*.asset are YAML text — keep them as plain text so diffs work
+ProjectSettings/*.asset text eol=lf -filter -diff -merge
 
 # 3D models
 *.fbx  filter=lfs diff=lfs merge=lfs -text
