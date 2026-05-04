@@ -1,4 +1,5 @@
 using Mirror;
+using Steading.Building;
 using UnityEngine;
 
 namespace Steading.Combat
@@ -17,11 +18,19 @@ namespace Steading.Combat
         [SerializeField] private LayerMask hitLayers = ~0;
 
         private float _nextSwingTime;
+        private BuildController _buildController;
+
+        private void Awake()
+        {
+            _buildController = GetComponent<BuildController>();
+        }
 
         private void Update()
         {
             if (!isLocalPlayer) return;
             if (!Input.GetMouseButtonDown(0)) return;
+            // Don't swing when in build mode — left-click belongs to placement.
+            if (_buildController != null && _buildController.InBuildMode) return;
             if (Time.time < _nextSwingTime) return;
 
             _nextSwingTime = Time.time + cooldown;
