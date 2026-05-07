@@ -4,6 +4,7 @@ using Steading.AI;
 using Steading.AI.Archetypes;
 using Steading.Combat;
 using Steading.Net;
+using Steading.Player;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -69,6 +70,8 @@ namespace Steading.EditorTools
             EnsureComponent<Health>(root);
             EnsureComponent<PlayerAttack>(root);
             EnsureComponent<PlayerRespawn>(root);
+            EnsureComponent<PlayerVisualAnimator>(root);
+            EnsureComponent<PlayerInventory>(root);
         }
 
         private static GameObject CreateDraugrPrefab()
@@ -84,6 +87,7 @@ namespace Steading.EditorTools
             var mr = visual.GetComponent<MeshRenderer>();
             var draugrMat = GetOrCreateColorMaterial("DraugrSkin", new Color(0.32f, 0.32f, 0.34f));
             mr.sharedMaterial = draugrMat;
+            mr.enabled = false;
 
             // CapsuleCollider on root so PlayerAttack raycasts hit, and so the player's
             // CharacterController bumps the Draugr instead of walking through it.
@@ -104,12 +108,15 @@ namespace Steading.EditorTools
             root.AddComponent<NetworkIdentity>();
             var nt = root.AddComponent<NetworkTransformReliable>();
             nt.syncDirection = SyncDirection.ServerToClient;
+            root.AddComponent<EnemyActor>();
 
             var hp = root.AddComponent<Health>();
-            new SerializedObject(hp).FindProperty("maxHp").intValue = 60;
-            new SerializedObject(hp).ApplyModifiedPropertiesWithoutUndo();
+            var hpSo = new SerializedObject(hp);
+            hpSo.FindProperty("maxHp").intValue = 60;
+            hpSo.ApplyModifiedPropertiesWithoutUndo();
 
             root.AddComponent<Draugr>();
+            root.AddComponent<EnemyVisualAnimator>();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, DraugrPrefabPath);
             Object.DestroyImmediate(root);
@@ -170,8 +177,13 @@ namespace Steading.EditorTools
             var es = spawner.AddComponent<EnemySpawner>();
             var so = new SerializedObject(es);
             so.FindProperty("enemyPrefab").objectReferenceValue = draugrPrefab;
-            so.FindProperty("count").intValue = 3;
-            so.FindProperty("radius").floatValue = 6f;
+            so.FindProperty("count").intValue = 4;
+            so.FindProperty("radius").floatValue = 9f;
+            so.FindProperty("spawnFromForts").boolValue = true;
+            so.FindProperty("fortSpawnRadius").floatValue = 7.5f;
+            so.FindProperty("waveInterval").floatValue = 28f;
+            so.FindProperty("addPerWave").intValue = 1;
+            so.FindProperty("maxAlive").intValue = 14;
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorSceneManager.MarkSceneDirty(scene);
@@ -188,17 +200,43 @@ namespace Steading.EditorTools
         {
             var path = $"Assets/_Project/Art/{name}.mat";
             var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null) return existing;
+            if (existing != null)
+            {
+                ApplyOpaqueColor(existing, color);
+                EditorUtility.SetDirty(existing);
+                return existing;
+            }
 
             var dir = System.IO.Path.GetDirectoryName(path);
             if (!System.IO.Directory.Exists(dir)) System.IO.Directory.CreateDirectory(dir);
 
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            var mat = new Material(shader) { name = name };
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
-            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
+            var mat = new Material(FindRenderableShader()) { name = name };
+            ApplyOpaqueColor(mat, color);
             AssetDatabase.CreateAsset(mat, path);
             return mat;
+        }
+
+        private static Shader FindRenderableShader()
+        {
+            return Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Universal Render Pipeline/Simple Lit")
+                ?? Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Hidden/Internal-Colored");
+        }
+
+        private static void ApplyOpaqueColor(Material mat, Color color)
+        {
+            mat.shader = FindRenderableShader();
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 0f);
+            if (mat.HasProperty("_AlphaClip")) mat.SetFloat("_AlphaClip", 0f);
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 1f);
+            mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.EnableKeyword("_SURFACE_TYPE_OPAQUE");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
         }
     }
 }

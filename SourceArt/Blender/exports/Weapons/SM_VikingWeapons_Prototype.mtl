@@ -1,0 +1,49 @@
+# Generated Steading prototype materials
+newmtl M_Polished_Iron
+Kd 0.6800 0.7000 0.6800
+Ka 0.1904 0.1960 0.1904
+Ks 0.1200 0.1200 0.1200
+Ns 81.60
+d 1.0
+illum 2
+
+newmtl M_Dark_Iron
+Kd 0.1700 0.1800 0.1800
+Ka 0.0476 0.0504 0.0504
+Ks 0.1200 0.1200 0.1200
+Ns 62.40
+d 1.0
+illum 2
+
+newmtl M_Brass
+Kd 0.6800 0.5000 0.2400
+Ka 0.1904 0.1400 0.0672
+Ks 0.1200 0.1200 0.1200
+Ns 74.40
+d 1.0
+illum 2
+
+newmtl M_Grip_Leather
+Kd 0.1600 0.0800 0.0350
+Ka 0.0448 0.0224 0.0098
+Ks 0.1200 0.1200 0.1200
+Ns 42.00
+d 1.0
+illum 2
+
+newmtl M_Ash_Wood
+Kd 0.4300 0.2600 0.1200
+Ka 0.1204 0.0728 0.0336
+Ks 0.1200 0.1200 0.1200
+Ns 33.60
+d 1.0
+illum 2
+
+newmtl M_Shield_Paint
+Kd 0.3800 0.0800 0.0600
+Ka 0.1064 0.0224 0.0168
+Ks 0.1200 0.1200 0.1200
+Ns 31.20
+d 1.0
+illum 2
+

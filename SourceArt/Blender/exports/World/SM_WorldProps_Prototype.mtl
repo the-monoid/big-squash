@@ -1,0 +1,33 @@
+# Generated Steading prototype materials
+newmtl M_Pine_Bark
+Kd 0.2400 0.1500 0.0800
+Ka 0.0672 0.0420 0.0224
+Ks 0.1200 0.1200 0.1200
+Ns 16.80
+d 1.0
+illum 2
+
+newmtl M_Pine_Needles
+Kd 0.1200 0.2700 0.1200
+Ka 0.0336 0.0756 0.0336
+Ks 0.1200 0.1200 0.1200
+Ns 21.60
+d 1.0
+illum 2
+
+newmtl M_Field_Stone
+Kd 0.4200 0.4200 0.3800
+Ka 0.1176 0.1176 0.1064
+Ks 0.1200 0.1200 0.1200
+Ns 14.40
+d 1.0
+illum 2
+
+newmtl M_Moss
+Kd 0.1800 0.3000 0.1300
+Ka 0.0504 0.0840 0.0364
+Ks 0.1200 0.1200 0.1200
+Ns 12.00
+d 1.0
+illum 2
+

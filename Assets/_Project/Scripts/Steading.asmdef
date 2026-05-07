@@ -5,6 +5,7 @@
         "Mirror",
         "Mirror.Components",
         "Mirror.Transports",
+        "UnityEngine.UI",
         "Unity.AI.Navigation"
     ],
     "includePlatforms": [],

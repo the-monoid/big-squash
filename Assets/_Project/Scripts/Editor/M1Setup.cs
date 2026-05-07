@@ -96,6 +96,9 @@ namespace Steading.EditorTools
             nt.syncDirection = SyncDirection.ClientToServer;
 
             root.AddComponent<PlayerInput>();
+            root.AddComponent<PlayerVisualAnimator>();
+            root.AddComponent<PlayerAppearance>();
+            root.AddComponent<PlayerInventory>();
             var pc = root.AddComponent<PlayerController>();
             var so = new SerializedObject(pc);
             so.FindProperty("cameraPivot").objectReferenceValue = pivot.transform;
@@ -187,7 +190,12 @@ namespace Steading.EditorTools
         {
             // Idempotent — return existing if we've already generated it.
             var existing = AssetDatabase.LoadAssetAtPath<Material>(PillMaterialPath);
-            if (existing != null) return existing;
+            if (existing != null)
+            {
+                ApplyOpaqueMaterialSettings(existing, AssetDatabase.LoadAssetAtPath<Texture2D>(PillTexturePath), 0.55f);
+                EditorUtility.SetDirty(existing);
+                return existing;
+            }
 
             // Build the texture in memory: 4-px wide x 256 tall, hard split at the midline.
             const int width = 4;
@@ -222,18 +230,36 @@ namespace Steading.EditorTools
             }
             var loadedTex = AssetDatabase.LoadAssetAtPath<Texture2D>(PillTexturePath);
 
-            // Build a URP/Lit material referencing the texture. Fall back to the
-            // Built-in Standard shader if URP isn't installed (shouldn't happen,
-            // but keeps the script defensive).
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            var mat = new Material(shader) { name = "CapsulePill" };
-            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", loadedTex);
-            if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", loadedTex);
-            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.55f);
+            var mat = new Material(FindRenderableShader()) { name = "CapsulePill" };
+            ApplyOpaqueMaterialSettings(mat, loadedTex, 0.55f);
 
             AssetDatabase.CreateAsset(mat, PillMaterialPath);
             AssetDatabase.SaveAssets();
             return mat;
+        }
+
+        private static Shader FindRenderableShader()
+        {
+            return Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Universal Render Pipeline/Simple Lit")
+                ?? Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Hidden/Internal-Colored");
+        }
+
+        private static void ApplyOpaqueMaterialSettings(Material mat, Texture2D texture, float smoothness)
+        {
+            mat.shader = FindRenderableShader();
+            if (texture != null && mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", texture);
+            if (texture != null && mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", texture);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 0f);
+            if (mat.HasProperty("_AlphaClip")) mat.SetFloat("_AlphaClip", 0f);
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 1f);
+            mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.EnableKeyword("_SURFACE_TYPE_OPAQUE");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
         }
     }
 }

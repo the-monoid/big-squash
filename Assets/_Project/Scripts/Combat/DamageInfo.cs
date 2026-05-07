@@ -8,5 +8,7 @@ namespace Steading.Combat
         public Vector3 hitPoint;
         public Vector3 hitDirection;
         public uint sourceNetId;
+        public WeaponKind weaponKind;
+        public bool canBeBlocked;
     }
 }

@@ -5,6 +5,7 @@ namespace Steading.Player
 {
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(PlayerInput))]
+    [RequireComponent(typeof(PlayerInventory))]
     public class PlayerController : NetworkBehaviour
     {
         [Header("Movement")]
@@ -27,6 +28,10 @@ namespace Steading.Player
         {
             _cc = GetComponent<CharacterController>();
             _input = GetComponent<PlayerInput>();
+            if (GetComponent<PlayerVisualAnimator>() == null)
+            {
+                gameObject.AddComponent<PlayerVisualAnimator>();
+            }
         }
 
         public override void OnStartLocalPlayer()

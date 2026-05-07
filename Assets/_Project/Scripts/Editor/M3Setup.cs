@@ -2,6 +2,7 @@ using Mirror;
 using Steading.Building;
 using Steading.Combat;
 using Steading.Net;
+using Steading.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -110,6 +111,8 @@ namespace Steading.EditorTools
             root.AddComponent<NetworkIdentity>();
             AddHealth(root, hp);
             root.AddComponent<Structure>();
+            root.AddComponent<BuildableVisualEnhancer>();
+            if (name == "Floor") root.AddComponent<WalkableSurface>();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);
@@ -126,13 +129,14 @@ namespace Steading.EditorTools
 
             var root = new GameObject("Doorway");
 
-            CreateDoorwaySection(root.transform, "LeftJamb",  new Vector3(0.4f, 3f, 0.2f),   new Vector3(-0.8f, 1.5f, 0f),  mat);
-            CreateDoorwaySection(root.transform, "RightJamb", new Vector3(0.4f, 3f, 0.2f),   new Vector3( 0.8f, 1.5f, 0f),  mat);
-            CreateDoorwaySection(root.transform, "Header",    new Vector3(1.2f, 0.5f, 0.2f), new Vector3( 0f, 2.75f, 0f),   mat);
+            CreateDoorwaySection(root.transform, "LeftJamb",  new Vector3(0.4f, 3f, 0.2f),   new Vector3(-0.8f, 0f, 0f),    mat);
+            CreateDoorwaySection(root.transform, "RightJamb", new Vector3(0.4f, 3f, 0.2f),   new Vector3( 0.8f, 0f, 0f),    mat);
+            CreateDoorwaySection(root.transform, "Header",    new Vector3(1.2f, 0.5f, 0.2f), new Vector3( 0f, 1.25f, 0f),   mat);
 
             root.AddComponent<NetworkIdentity>();
             AddHealth(root, 220);
             root.AddComponent<Structure>();
+            root.AddComponent<BuildableVisualEnhancer>();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);
@@ -231,7 +235,9 @@ namespace Steading.EditorTools
             }
             EnsureDir(ArtDir);
 
-            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Universal Render Pipeline/Simple Lit")
+                ?? Shader.Find("Hidden/Internal-Colored");
             var mat = new Material(shader);
             ApplyTransparentSettings(mat, color);
             AssetDatabase.CreateAsset(mat, path);
@@ -241,15 +247,41 @@ namespace Steading.EditorTools
         private static Material GetOrCreateOpaqueColorMaterial(string path, Color color)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null) return existing;
+            if (existing != null)
+            {
+                ApplyOpaqueColor(existing, color);
+                EditorUtility.SetDirty(existing);
+                return existing;
+            }
             EnsureDir(ArtDir);
 
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            var mat = new Material(shader);
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
-            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
+            var mat = new Material(FindOpaqueShader());
+            ApplyOpaqueColor(mat, color);
             AssetDatabase.CreateAsset(mat, path);
             return mat;
+        }
+
+        private static Shader FindOpaqueShader()
+        {
+            return Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Universal Render Pipeline/Simple Lit")
+                ?? Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Hidden/Internal-Colored");
+        }
+
+        private static void ApplyOpaqueColor(Material mat, Color color)
+        {
+            mat.shader = FindOpaqueShader();
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 0f);
+            if (mat.HasProperty("_AlphaClip")) mat.SetFloat("_AlphaClip", 0f);
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 1f);
+            mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.EnableKeyword("_SURFACE_TYPE_OPAQUE");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
         }
 
         private static void ApplyTransparentSettings(Material mat, Color color)

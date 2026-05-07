@@ -30,6 +30,12 @@ namespace Steading.Combat
         {
             if (_hp <= 0 || info.amount <= 0) return;
 
+            var playerAttack = GetComponent<PlayerAttack>();
+            if (playerAttack != null && playerAttack.TryMitigateIncomingDamage(ref info))
+            {
+                if (info.amount <= 0) return;
+            }
+
             _hp = Mathf.Max(0, _hp - info.amount);
             Damaged?.Invoke(info);
 
@@ -47,6 +53,14 @@ namespace Steading.Combat
         public void ResetToFull()
         {
             _hp = maxHp;
+        }
+
+        [Server]
+        public void SetMaxHpRuntime(int value, bool refill)
+        {
+            maxHp = Mathf.Max(1, value);
+            if (refill || _hp <= 0) _hp = maxHp;
+            else _hp = Mathf.Min(_hp, maxHp);
         }
 
         private void OnHpChanged(int oldHp, int newHp)

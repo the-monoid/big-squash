@@ -6,8 +6,11 @@
         "Mirror",
         "Mirror.Components",
         "Mirror.Transports",
+        "UnityEngine.UI",
         "Unity.AI.Navigation",
-        "Unity.AI.Navigation.Editor"
+        "Unity.AI.Navigation.Editor",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
     ],
     "includePlatforms": [
         "Editor"
