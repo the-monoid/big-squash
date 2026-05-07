@@ -11,6 +11,10 @@ namespace Steading.Building
         public GameObject prefab;
         [Tooltip("Half-extents used for ghost preview shape and overlap-rejection check.")]
         public Vector3 halfExtents;
+        [Tooltip("Socket tags this buildable can attach to. Empty = grid snap only.")]
+        public string[] snapTags;
+        [Tooltip("Resource costs to place this buildable. Server validates totals.")]
+        public ResourceCost[] cost;
     }
 
     // Local-player build mode. B toggles. Tab cycles type. R rotates 90°.
@@ -26,6 +30,8 @@ namespace Steading.Building
         [SerializeField] private float maxRange = 5f;
         [SerializeField] private float gridSize = 1f;
         [SerializeField] private LayerMask placementLayers = ~0;
+        [Tooltip("Camera ray endpoints within this radius of a compatible socket get snapped to that socket instead of the grid.")]
+        [SerializeField] private float socketSnapRadius = 1.4f;
 
         [Header("Ghost visuals")]
         [SerializeField] private Material ghostValidMat;
@@ -43,6 +49,23 @@ namespace Steading.Building
             (buildables != null && _selectedIndex < buildables.Length)
                 ? buildables[_selectedIndex].label
                 : null;
+
+        public string CurrentCostString
+        {
+            get
+            {
+                if (buildables == null || _selectedIndex >= buildables.Length) return null;
+                var cost = buildables[_selectedIndex].cost;
+                if (cost == null || cost.Length == 0) return "free";
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < cost.Length; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(cost[i].amount).Append(' ').Append(cost[i].kind);
+                }
+                return sb.ToString();
+            }
+        }
 
         private void OnDestroy()
         {
@@ -128,16 +151,80 @@ namespace Steading.Building
             var hitNi = hit.collider.GetComponentInParent<NetworkIdentity>();
             if (hitNi != null && hit.collider.GetComponentInParent<Structure>() == null) return false;
 
+            // ---- SOCKET SNAP ---- if the camera ray hit point is near a compatible
+            // socket on any existing Structure, snap to it instead of the grid. This
+            // is what makes walls actually attach to pillars / floors / each other.
+            if (TrySocketSnap(hit.point, _selectedIndex, out var sockPos, out var sockRot))
+            {
+                pos = sockPos;
+                rot = sockRot;
+                return true;
+            }
+
+            // ---- GRID SNAP ---- fallback when no compatible socket is in range.
             var snapped = hit.point;
             snapped.x = Mathf.Round(snapped.x / gridSize) * gridSize;
             snapped.z = Mathf.Round(snapped.z / gridSize) * gridSize;
-            // Lift so the buildable's bottom sits on the hit surface.
             snapped.y = hit.point.y + halfExtents.y;
 
             var baseYaw = Mathf.Round(transform.eulerAngles.y / 90f) * 90f;
             pos = snapped;
             rot = Quaternion.Euler(0f, baseYaw + _placeYawOffsetDeg, 0f);
             return true;
+        }
+
+        // Pick the closest compatible socket to the cursor's world hit point. A socket
+        // is "compatible" when its tag is in the buildable's snapTags[]. We scan every
+        // StructureSockets in a small radius around the cursor.
+        private bool TrySocketSnap(Vector3 cursorWorld, int buildableIndex, out Vector3 outPos, out Quaternion outRot)
+        {
+            outPos = Vector3.zero;
+            outRot = Quaternion.identity;
+
+            if (buildables == null || buildableIndex < 0 || buildableIndex >= buildables.Length) return false;
+            var entry = buildables[buildableIndex];
+            if (entry.snapTags == null || entry.snapTags.Length == 0) return false;
+
+            // Cheap broad-phase: physics overlap on a sphere at the cursor, find
+            // any colliders belonging to a Structure with sockets.
+            var nearbyHosts = Physics.OverlapSphere(cursorWorld, socketSnapRadius * 2f, ~0, QueryTriggerInteraction.Ignore);
+            float bestDistSq = socketSnapRadius * socketSnapRadius;
+            bool found = false;
+
+            foreach (var col in nearbyHosts)
+            {
+                var sockets = col.GetComponentInParent<StructureSockets>();
+                if (sockets == null) continue;
+                if (sockets.GetComponent<NetworkIdentity>() == netIdentity) continue;
+
+                var defs = sockets.Sockets;
+                for (int i = 0; i < defs.Length; i++)
+                {
+                    if (!IsCompatibleTag(defs[i].tag, entry.snapTags)) continue;
+                    if (!sockets.TryGetWorldSocket(i, out var wp, out var wr)) continue;
+
+                    var d = (wp - cursorWorld).sqrMagnitude;
+                    if (d < bestDistSq)
+                    {
+                        bestDistSq = d;
+                        outPos = wp;
+                        outRot = wr * Quaternion.Euler(0f, _placeYawOffsetDeg, 0f);
+                        found = true;
+                    }
+                }
+            }
+
+            return found;
+        }
+
+        private static bool IsCompatibleTag(string socketTag, string[] wanted)
+        {
+            if (string.IsNullOrEmpty(socketTag)) return false;
+            for (int i = 0; i < wanted.Length; i++)
+            {
+                if (string.Equals(wanted[i], socketTag, System.StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         private bool TryRaycastStructure(Camera cam, out NetworkIdentity target)
@@ -170,10 +257,28 @@ namespace Steading.Building
             _ghost.transform.SetPositionAndRotation(pos, rot);
 
             var overlap = WouldOverlap(pos, halfExtents, rot);
+            var broke = !LocalCanAfford();
             if (_ghostRenderer != null)
             {
-                _ghostRenderer.sharedMaterial = overlap ? ghostInvalidMat : ghostValidMat;
+                _ghostRenderer.sharedMaterial = (overlap || broke) ? ghostInvalidMat : ghostValidMat;
             }
+        }
+
+        // Client-side affordability check for ghost color. Server still re-validates
+        // in CmdPlace, so this is feedback-only (no anti-cheat surface).
+        private bool LocalCanAfford()
+        {
+            if (buildables == null || _selectedIndex < 0 || _selectedIndex >= buildables.Length) return true;
+            var cost = buildables[_selectedIndex].cost;
+            if (cost == null || cost.Length == 0) return true;
+
+            var wallet = GetComponent<ResourceWallet>();
+            if (wallet == null) return true;
+            foreach (var c in cost)
+            {
+                if (wallet.GetAmount(c.kind) < c.amount) return false;
+            }
+            return true;
         }
 
         private bool WouldOverlap(Vector3 pos, Vector3 halfExtents, Quaternion rot)
@@ -222,8 +327,8 @@ namespace Steading.Building
         private void CmdPlace(int index, Vector3 pos, Quaternion rot)
         {
             if (buildables == null || index < 0 || index >= buildables.Length) return;
-            var prefab = buildables[index].prefab;
-            if (prefab == null) return;
+            var entry = buildables[index];
+            if (entry.prefab == null) return;
 
             if (Vector3.Distance(pos, transform.position) > maxRange + 4f) return;
 
@@ -234,10 +339,26 @@ namespace Steading.Building
                 if (c.gameObject.name == "Ground") continue;
                 var ni = c.GetComponentInParent<NetworkIdentity>();
                 if (ni != null && ni == netIdentity) continue;
-                return; // overlaps something else — reject
+
+                // Allow snapping into a Structure that hosts the chosen socket — the
+                // overlap will graze the host. Only reject if the colliding thing is
+                // ALSO a Structure that we'd be physically clipping into.
+                var st = c.GetComponentInParent<Structure>();
+                if (st == null) return;
+                // tolerate touching at <= 5cm; reject deeper interpenetration
+                var nearestOnHost = c.ClosestPoint(pos);
+                if ((nearestOnHost - pos).sqrMagnitude < (halfExtents.magnitude * 0.7f) * (halfExtents.magnitude * 0.7f)) return;
             }
 
-            var instance = Instantiate(prefab, pos, rot);
+            // Resource cost check — server-authoritative, atomic spend.
+            var wallet = GetComponent<ResourceWallet>();
+            if (entry.cost != null && entry.cost.Length > 0)
+            {
+                if (wallet == null) return;
+                if (!wallet.TrySpend(entry.cost)) return; // refund-safe: no-op on failure
+            }
+
+            var instance = Instantiate(entry.prefab, pos, rot);
             NetworkServer.Spawn(instance);
         }
 

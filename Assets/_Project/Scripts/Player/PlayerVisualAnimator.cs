@@ -7,8 +7,11 @@ namespace Steading.Player
 {
     public class PlayerVisualAnimator : MonoBehaviour
     {
-        private const int LimbSegments = 32;
-        private const int BodySegments = 48;
+        // Higher segment counts → smoother silhouettes. Doubled from prior values
+        // to reduce the "geometric blob" read at the cost of ~3× vertex count per
+        // character. Still well within budget for 8-player co-op on URP.
+        private const int LimbSegments = 64;
+        private const int BodySegments = 96;
 
         [Header("Movement")]
         [SerializeField] private float walkThreshold = 0.08f;
@@ -17,6 +20,22 @@ namespace Steading.Player
         [SerializeField] private float turnSmoothing = 10f;
         [SerializeField] private float walkCycleRate = 6.4f;
         [SerializeField] private float runCycleRate = 10.8f;
+
+        [Header("Idle")]
+        [SerializeField] private float idleBreathRate = 0.42f;     // breaths per second
+        [SerializeField] private float idleBreathDepth = 0.013f;
+        [SerializeField] private float idleSwayRate = 0.28f;
+        [SerializeField] private float idleSwayAmount = 0.008f;
+        [SerializeField] private float idleHeadBobAmount = 0.6f;   // degrees of subtle head drift
+
+        [Header("Look")]
+        [SerializeField] private float headFollowCamera = 0.55f;
+        [SerializeField] private float headPitchMax = 38f;
+        [SerializeField] private float headPitchMin = -28f;
+
+        [Header("Jump / Air")]
+        [SerializeField] private float landRecoverySeconds = 0.22f;
+        [SerializeField] private float jumpAnticipationSeconds = 0.10f;
 
         private Transform _rig;
         private Transform _hips;
@@ -45,6 +64,12 @@ namespace Steading.Player
         private float _cycle;
         private float _smoothedSpeed;
         private float _turnAmount;
+        private float _verticalVelocity;       // sign + magnitude of vertical motion
+        private float _smoothedVertical;
+        private float _airTime;                // seconds since last grounded
+        private float _landRecoveryT;          // 1 -> 0 over landRecoverySeconds after landing
+        private bool  _wasAirborneLastFrame;
+        private float _smoothedHeadPitch;
         private float _attackWeight;
         private Vector3 _attackTorsoEuler;
         private Vector3 _attackRightShoulderEuler;
@@ -463,76 +488,235 @@ namespace Steading.Player
             return part.transform;
         }
 
+        // ===================================================================
+        // Layered biomechanical animation. Each Update we evaluate four layers
+        // and compose them with weights:
+        //   IDLE       — breathing, weight shift, head drift
+        //   LOCOMOTION — walk / run cycle (proper heel-strike, hip drop,
+        //                counter-arm swing, head bob)
+        //   AIR        — jump anticipation, airborne tuck, landing recovery
+        //   COMBAT     — additive overlay from PlayShieldBashPose / sword poses
+        // ===================================================================
+
         private void AnimateFromMovement()
         {
-            var delta = transform.position - _lastPosition;
-            _lastPosition = transform.position;
-            delta.y = 0f;
+            // ---- 1. Read motion (speed, turn, vertical velocity) ----------
+            var dt = Time.deltaTime;
+            var pos = transform.position;
+            var fullDelta = pos - _lastPosition;
+            _lastPosition = pos;
 
-            var rawSpeed = Time.deltaTime > 0.0001f ? delta.magnitude / Time.deltaTime : 0f;
-            var smoothing = 1f - Mathf.Exp(-speedSmoothing * Time.deltaTime);
+            var horizDelta = new Vector3(fullDelta.x, 0f, fullDelta.z);
+            var rawSpeed = dt > 0.0001f ? horizDelta.magnitude / dt : 0f;
+            var smoothing = 1f - Mathf.Exp(-speedSmoothing * dt);
             _smoothedSpeed = Mathf.Lerp(_smoothedSpeed, rawSpeed, smoothing);
+
+            var rawVertical = dt > 0.0001f ? fullDelta.y / dt : 0f;
+            _smoothedVertical = Mathf.Lerp(_smoothedVertical, rawVertical, smoothing);
+            _verticalVelocity = _smoothedVertical;
 
             var signedTurn = Vector3.SignedAngle(_lastForward, transform.forward, Vector3.up);
             _lastForward = transform.forward;
-            var turnSmoothingAmount = 1f - Mathf.Exp(-turnSmoothing * Time.deltaTime);
+            var turnSmoothingAmount = 1f - Mathf.Exp(-turnSmoothing * dt);
             _turnAmount = Mathf.Lerp(_turnAmount, Mathf.Clamp(signedTurn * 0.055f, -1f, 1f), turnSmoothingAmount);
 
-            var moving = _smoothedSpeed > walkThreshold;
-            var normalizedSpeed = Mathf.Clamp01(_smoothedSpeed / Mathf.Max(runThreshold, 0.01f));
-            var runningBlend = Mathf.SmoothStep(0f, 1f, normalizedSpeed);
-            var rate = Mathf.Lerp(walkCycleRate, runCycleRate, runningBlend);
-
-            if (moving)
+            // ---- 2. Detect grounded vs airborne ---------------------------
+            // We don't have direct access to CharacterController here without
+            // coupling, so we infer from sustained vertical motion: |vy| > 0.6
+            // for > 0.05s = airborne.
+            var airborne = Mathf.Abs(_verticalVelocity) > 0.6f && dt > 0f;
+            if (airborne)
             {
-                _cycle += Time.deltaTime * rate;
+                _airTime += dt;
             }
             else
             {
-                _cycle = Mathf.Lerp(_cycle, 0f, smoothing);
+                if (_wasAirborneLastFrame && _airTime > 0.10f) _landRecoveryT = 1f;
+                _airTime = 0f;
+            }
+            _wasAirborneLastFrame = airborne;
+            _landRecoveryT = Mathf.Max(0f, _landRecoveryT - dt / Mathf.Max(landRecoverySeconds, 0.01f));
+
+            // ---- 3. Normalized speed + cycle phase ------------------------
+            var moving = _smoothedSpeed > walkThreshold;
+            var normalizedSpeed = Mathf.Clamp01(_smoothedSpeed / Mathf.Max(runThreshold, 0.01f));
+            var runBlend = Mathf.SmoothStep(0f, 1f, normalizedSpeed);
+            var locomotionWeight = moving && !airborne ? Mathf.SmoothStep(0f, 1f, _smoothedSpeed * 4f) : 0f;
+            locomotionWeight = Mathf.Clamp01(locomotionWeight);
+            var idleWeight = (1f - locomotionWeight) * (airborne ? 0.0f : 1f);
+            var rate = Mathf.Lerp(walkCycleRate, runCycleRate, runBlend);
+            if (moving) _cycle += dt * rate;
+            else        _cycle = Mathf.Lerp(_cycle, 0f, smoothing);
+
+            // ---- 4. Compute pose contributions ----------------------------
+            var hipPosLocal = new Vector3(0f, 0.92f, 0f);
+            var hipRotEuler = new Vector3(0f, _turnAmount * 4f, 0f);
+            var torsoEuler  = new Vector3(0f, _turnAmount * 7f, 0f);
+            var chestEuler  = new Vector3(0f, _turnAmount * 7f, 0f);
+            var headEuler   = new Vector3(0f, -_turnAmount * 8f, 0f);
+
+            var leftShoulderE  = new Vector3(8f,  0f, -11f);
+            var leftElbowE     = new Vector3(12f, 0f, 0f);
+            var leftWristE     = Vector3.zero;
+            var rightShoulderE = new Vector3(12f, -4f, 12f);
+            var rightElbowE    = new Vector3(24f, 0f, 0f);
+            var rightWristE    = new Vector3(-3f, 0f, 0f);
+
+            // ---- IDLE LAYER ---- breathing + weight-shift + head drift
+            if (idleWeight > 0.001f)
+            {
+                var t = Time.time;
+                var breath = Mathf.Sin(t * idleBreathRate * 2f * Mathf.PI);  // -1..1
+                var sway   = Mathf.Sin(t * idleSwayRate   * 2f * Mathf.PI);
+
+                hipPosLocal.x += sway * idleSwayAmount * idleWeight;
+                hipPosLocal.y += (breath + 1f) * 0.5f * idleBreathDepth * idleWeight;
+                hipRotEuler.z += sway * 0.6f * idleWeight;
+                chestEuler.x  += -breath * 1.4f * idleWeight;     // chest expands on inhale
+                chestEuler.z  += sway * 0.8f * idleWeight;
+                torsoEuler.z  += sway * 0.4f * idleWeight;
+
+                // arms drift very slightly with breath
+                leftShoulderE.z  += -breath * 0.6f * idleWeight;
+                rightShoulderE.z += breath  * 0.6f * idleWeight;
+
+                headEuler.y += sway * idleHeadBobAmount * idleWeight * 0.3f;
+                headEuler.x += -breath * 0.3f * idleWeight;
             }
 
-            var stride = Mathf.Lerp(24f, 43f, runningBlend);
-            var armStride = Mathf.Lerp(24f, 42f, runningBlend);
-            var kneeBend = Mathf.Lerp(18f, 43f, runningBlend);
-            var footPitch = Mathf.Lerp(7f, 17f, runningBlend);
-            var bobHeight = Mathf.Lerp(0.025f, 0.065f, runningBlend);
-            var forwardLean = Mathf.Lerp(2f, 9f, runningBlend);
+            // ---- LOCOMOTION LAYER ---- walk + run cycle
+            if (locomotionWeight > 0.001f)
+            {
+                var leftPhase  = _cycle;
+                var rightPhase = _cycle + Mathf.PI;
+                var leftSwing  = Mathf.Sin(leftPhase);
+                var rightSwing = Mathf.Sin(rightPhase);
+                var leftLift   = Mathf.Clamp01(Mathf.Sin(leftPhase  - 0.15f));
+                var rightLift  = Mathf.Clamp01(Mathf.Sin(rightPhase - 0.15f));
 
-            var leftPhase = _cycle;
-            var rightPhase = _cycle + Mathf.PI;
-            var leftSwing = Mathf.Sin(leftPhase);
-            var rightSwing = Mathf.Sin(rightPhase);
-            var leftLift = moving ? Mathf.Clamp01(Mathf.Sin(leftPhase - 0.15f)) : 0f;
-            var rightLift = moving ? Mathf.Clamp01(Mathf.Sin(rightPhase - 0.15f)) : 0f;
-            var bounce = moving ? Mathf.Abs(Mathf.Cos(_cycle)) * bobHeight : 0f;
-            var sideSway = moving ? Mathf.Sin(_cycle) * Mathf.Lerp(0.012f, 0.025f, runningBlend) : 0f;
+                // Hip drop on supporting (planted) leg + counter-rotation around vertical.
+                // When the right foot is planted (right phase is in stance, sin ≈ -1 to 0),
+                // the hip drops on the right and rotates so the left side leads forward.
+                var stancePhase = Mathf.Cos(_cycle);                    // -1 = right plant, +1 = left plant
+                var hipDrop = stancePhase * Mathf.Lerp(0.012f, 0.028f, runBlend) * locomotionWeight;
+                var hipYaw  = -Mathf.Sin(_cycle) * Mathf.Lerp(3.2f, 6.5f, runBlend);   // pelvis rotation
+                var chestYaw = -hipYaw * 0.7f;                                          // chest counter-rotates
 
-            SetLocalPosition(_hips, new Vector3(sideSway, 0.92f + bounce, 0f));
-            SetLocalRotation(_hips, Quaternion.Euler(moving ? Mathf.Abs(leftSwing) * 1.2f : 0f, _turnAmount * 4f, moving ? -leftSwing * 2.6f : 0f));
-            SetLocalRotation(_torso, Quaternion.Euler(moving ? forwardLean : 0f, _turnAmount * 7f, moving ? rightSwing * 2.3f : 0f));
-            SetLocalRotation(_chest, Quaternion.Euler(moving ? forwardLean * 0.45f : 0f, _turnAmount * 7f, moving ? leftSwing * 3.5f : 0f));
-            SetLocalRotation(_head, Quaternion.Euler(moving ? -Mathf.Abs(leftSwing) * 1.2f : 0f, -_turnAmount * 8f, moving ? rightSwing * 1.2f : 0f));
+                var stride       = Mathf.Lerp(22f, 42f, runBlend);
+                var armStride    = Mathf.Lerp(28f, 56f, runBlend);
+                var kneeBend     = Mathf.Lerp(20f, 48f, runBlend);
+                var footPitch    = Mathf.Lerp( 8f, 19f, runBlend);
+                var bobHeight    = Mathf.Lerp(0.026f, 0.065f, runBlend);
+                var forwardLean  = Mathf.Lerp(  3f, 11f, runBlend);
 
-            SetLocalRotation(_leftShoulder, Quaternion.Euler(moving ? rightSwing * armStride + 4f : 8f, 0f, -11f));
-            SetLocalRotation(_leftElbow, Quaternion.Euler(moving ? 14f + leftLift * 18f : 12f, 0f, 0f));
-            SetLocalRotation(_leftWrist, Quaternion.Euler(moving ? -rightSwing * 8f : 0f, 0f, 0f));
+                // Vertical bounce: peaks at mid-stance (when stancePhase is 0).
+                var bounce = Mathf.Abs(Mathf.Cos(_cycle)) * bobHeight;
+                var sideSway = Mathf.Sin(_cycle) * Mathf.Lerp(0.014f, 0.028f, runBlend);
 
-            SetLocalRotation(_rightShoulder, Quaternion.Euler(moving ? leftSwing * armStride * 0.55f + 11f : 12f, -4f, 12f));
-            SetLocalRotation(_rightElbow, Quaternion.Euler(moving ? 25f + rightLift * 12f : 24f, 0f, 0f));
-            SetLocalRotation(_rightWrist, Quaternion.Euler(moving ? -leftSwing * 8f : -3f, 0f, 0f));
+                hipPosLocal.x += sideSway * locomotionWeight;
+                hipPosLocal.y += bounce * locomotionWeight - Mathf.Abs(hipDrop) * 0.5f;
 
-            AnimateLeg(_leftHip, _leftKnee, _leftAnkle, _leftFootMesh, leftSwing, leftLift, stride, kneeBend, footPitch, moving);
-            AnimateLeg(_rightHip, _rightKnee, _rightAnkle, _rightFootMesh, rightSwing, rightLift, stride, kneeBend, footPitch, moving);
+                hipRotEuler.x += locomotionWeight * Mathf.Abs(leftSwing) * 1.2f;
+                hipRotEuler.y += hipYaw * locomotionWeight;
+                hipRotEuler.z += hipDrop * 60f;       // drop expressed as roll
+
+                torsoEuler.x  += forwardLean * locomotionWeight;
+                torsoEuler.y  += chestYaw * locomotionWeight;
+                torsoEuler.z  += rightSwing * 2.0f * locomotionWeight;
+
+                chestEuler.x  += forwardLean * 0.45f * locomotionWeight;
+                chestEuler.y  += chestYaw * locomotionWeight;
+                chestEuler.z  += leftSwing * 3.0f * locomotionWeight;
+
+                // Head bobs DOWN on heel-strike (when supporting leg starts taking weight)
+                var headBob = -Mathf.Abs(leftSwing) * 1.6f * locomotionWeight;
+                headEuler.x += headBob;
+                headEuler.z += rightSwing * 0.8f * locomotionWeight;
+
+                // Counter-arm swing: arm opposite to leg
+                leftShoulderE  += new Vector3(rightSwing * armStride, 0f, -leftSwing  * 4f) * locomotionWeight;
+                leftElbowE     += new Vector3(8f + leftLift * 22f, 0f, 0f) * locomotionWeight;
+                leftWristE     += new Vector3(-rightSwing * 8f, 0f, 0f) * locomotionWeight;
+
+                rightShoulderE += new Vector3(leftSwing * armStride, 0f, rightSwing * 4f) * locomotionWeight;
+                rightElbowE    += new Vector3(8f + rightLift * 22f, 0f, 0f) * locomotionWeight;
+                rightWristE    += new Vector3(-leftSwing * 8f, 0f, 0f) * locomotionWeight;
+
+                AnimateLegLayered(_leftHip,  _leftKnee,  _leftAnkle,  _leftFootMesh,  leftSwing,  leftLift,  stride, kneeBend, footPitch, locomotionWeight);
+                AnimateLegLayered(_rightHip, _rightKnee, _rightAnkle, _rightFootMesh, rightSwing, rightLift, stride, kneeBend, footPitch, locomotionWeight);
+            }
+            else
+            {
+                // Idle leg pose
+                AnimateLegLayered(_leftHip,  _leftKnee,  _leftAnkle,  _leftFootMesh,  0f, 0f, 0f, 0f, 0f, 0f);
+                AnimateLegLayered(_rightHip, _rightKnee, _rightAnkle, _rightFootMesh, 0f, 0f, 0f, 0f, 0f, 0f);
+            }
+
+            // ---- AIR LAYER ---- airborne tuck + landing squash
+            if (airborne)
+            {
+                var rising = _verticalVelocity > 0f;
+                var airBlend = Mathf.Clamp01(_airTime / 0.30f);
+
+                // Knees tuck up, arms slightly forward for balance
+                hipPosLocal.y -= 0.04f * airBlend;
+                torsoEuler.x  += rising ?  6f * airBlend : -10f * airBlend;       // lean forward rising, arch back falling
+                chestEuler.x  += rising ?  3f * airBlend : -6f  * airBlend;
+                leftShoulderE  += new Vector3(-30f * airBlend, 0f, -8f * airBlend);
+                rightShoulderE += new Vector3(-26f * airBlend, 0f,  8f * airBlend);
+                leftElbowE  += new Vector3(45f * airBlend, 0f, 0f);
+                rightElbowE += new Vector3(45f * airBlend, 0f, 0f);
+            }
+            if (_landRecoveryT > 0.001f)
+            {
+                // Brief crouch on landing
+                var amount = Mathf.SmoothStep(0f, 1f, _landRecoveryT);
+                hipPosLocal.y -= 0.06f * amount;
+                torsoEuler.x  +=  6f * amount;
+                chestEuler.x  +=  4f * amount;
+            }
+
+            // ---- LOOK LAYER ---- head tracks camera pitch a bit
+            if (Camera.main != null)
+            {
+                var camFwd = Camera.main.transform.forward;
+                var localCamFwd = transform.InverseTransformDirection(camFwd);
+                var pitchTarget = Mathf.Clamp(-Mathf.Asin(Mathf.Clamp(localCamFwd.y, -1f, 1f)) * Mathf.Rad2Deg, headPitchMin, headPitchMax);
+                _smoothedHeadPitch = Mathf.Lerp(_smoothedHeadPitch, pitchTarget, 1f - Mathf.Exp(-9f * dt));
+                headEuler.x += _smoothedHeadPitch * headFollowCamera;
+            }
+
+            // ---- 5. Apply composed pose -----------------------------------
+            SetLocalPosition(_hips, hipPosLocal);
+            SetLocalRotation(_hips,  Quaternion.Euler(hipRotEuler));
+            SetLocalRotation(_torso, Quaternion.Euler(torsoEuler));
+            SetLocalRotation(_chest, Quaternion.Euler(chestEuler));
+            SetLocalRotation(_head,  Quaternion.Euler(headEuler));
+
+            SetLocalRotation(_leftShoulder,  Quaternion.Euler(leftShoulderE));
+            SetLocalRotation(_leftElbow,     Quaternion.Euler(leftElbowE));
+            SetLocalRotation(_leftWrist,     Quaternion.Euler(leftWristE));
+            SetLocalRotation(_rightShoulder, Quaternion.Euler(rightShoulderE));
+            SetLocalRotation(_rightElbow,    Quaternion.Euler(rightElbowE));
+            SetLocalRotation(_rightWrist,    Quaternion.Euler(rightWristE));
+
             ApplyAttackOverlay();
         }
 
-        private static void AnimateLeg(Transform hip, Transform knee, Transform ankle, Transform foot, float swing, float lift, float stride, float kneeBend, float footPitch, bool moving)
+        // Layered leg evaluation. Weight scales the entire pose so we lerp
+        // smoothly into idle when speed drops.
+        private static void AnimateLegLayered(Transform hip, Transform knee, Transform ankle, Transform foot,
+            float swing, float lift, float stride, float kneeBend, float footPitch, float weight)
         {
-            SetLocalRotation(hip, Quaternion.Euler(moving ? swing * stride : 0f, 0f, 0f));
-            SetLocalRotation(knee, Quaternion.Euler(moving ? 4f + lift * kneeBend : 2f, 0f, 0f));
-            SetLocalRotation(ankle, Quaternion.Euler(moving ? -swing * footPitch - lift * 5f : 0f, 0f, 0f));
-            SetLocalPosition(foot, new Vector3(0f, -0.060f + lift * 0.045f, 0.105f + swing * 0.018f));
+            var hipP   = swing * stride * weight;
+            var kneeP  = Mathf.Lerp(2f, 4f + lift * kneeBend, weight);
+            var ankleP = (-swing * footPitch - lift * 5f) * weight;
+            var footY  = -0.060f + lift * 0.045f * weight;
+            var footZ  = 0.105f + swing * 0.018f * weight;
+            SetLocalRotation(hip,   Quaternion.Euler(hipP,   0f, 0f));
+            SetLocalRotation(knee,  Quaternion.Euler(kneeP,  0f, 0f));
+            SetLocalRotation(ankle, Quaternion.Euler(ankleP, 0f, 0f));
+            SetLocalPosition(foot,  new Vector3(0f, footY, footZ));
         }
 
         private void ApplyAttackOverlay()
@@ -550,19 +734,50 @@ namespace Steading.Player
         private IEnumerator AnimateSwordAttackPose(bool heavy, int comboStep)
         {
             var leftSlash = comboStep == 1;
-            var windupTorso = heavy ? new Vector3(-2f, -22f, -5f) : new Vector3(-1f, -14f, -3f);
-            var windupShoulder = heavy ? new Vector3(-82f, -22f, 34f) : new Vector3(-58f, -14f, 24f);
-            var windupElbow = heavy ? new Vector3(68f, 0f, 0f) : new Vector3(50f, 0f, 0f);
-            var windupWrist = heavy ? new Vector3(3f, -12f, -20f) : new Vector3(1f, -8f, -13f);
-            var slashTorso = heavy ? new Vector3(5f, 24f, 7f) : new Vector3(4f, leftSlash ? 17f : 11f, leftSlash ? 5f : 3f);
-            var slashShoulder = heavy ? new Vector3(-18f, 36f, -27f) : new Vector3(-24f, leftSlash ? 30f : 21f, leftSlash ? -22f : -15f);
-            var slashElbow = heavy ? new Vector3(24f, 0f, 0f) : new Vector3(26f, 0f, 0f);
-            var slashWrist = heavy ? new Vector3(-8f, 8f, 20f) : new Vector3(-4f, 5f, leftSlash ? 18f : 12f);
-            var shieldArm = heavy ? new Vector3(24f, 0f, -18f) : new Vector3(14f, 0f, -14f);
 
-            yield return BlendAttackPose(windupTorso, windupShoulder, windupElbow, windupWrist, shieldArm, 1f, heavy ? 0.18f : 0.10f);
-            yield return BlendAttackPose(slashTorso, slashShoulder, slashElbow, slashWrist, shieldArm, 1f, heavy ? 0.13f : 0.09f);
-            yield return BlendAttackPose(Vector3.zero, new Vector3(12f, -4f, 12f), new Vector3(24f, 0f, 0f), new Vector3(-3f, 0f, 0f), new Vector3(8f, 0f, -11f), 0f, heavy ? 0.28f : 0.18f);
+            // ANTICIPATION (briefly bias body opposite to where the attack will go)
+            // gives the swing weight — the brain reads it as commitment.
+            var antiTorso    = heavy ? new Vector3(-1f, -8f, -2f)  : new Vector3(0f, -4f, -1f);
+            var antiShoulder = heavy ? new Vector3(-12f, -8f, 8f)  : new Vector3(-6f, -4f, 4f);
+            var antiElbow    = heavy ? new Vector3(28f, 0f, 0f)    : new Vector3(20f, 0f, 0f);
+            var antiWrist    = Vector3.zero;
+            var antiShield   = new Vector3(8f, 0f, -12f);
+
+            // WINDUP (deeper than anticipation — sword goes back behind shoulder)
+            var windupTorso    = heavy ? new Vector3(-2f, -28f, -6f) : new Vector3(-1f, -18f, -4f);
+            var windupShoulder = heavy ? new Vector3(-92f, -28f, 38f) : new Vector3(-66f, -18f, 28f);
+            var windupElbow    = heavy ? new Vector3(75f, 0f, 0f)    : new Vector3(55f, 0f, 0f);
+            var windupWrist    = heavy ? new Vector3(3f, -14f, -22f) : new Vector3(1f, -10f, -15f);
+            var windupShield   = new Vector3(18f, 0f, -22f);
+
+            // STRIKE (explosive forward) — short duration so it snaps
+            var slashTorso    = heavy ? new Vector3(7f, 30f, 9f) : new Vector3(5f, leftSlash ? 22f : 14f, leftSlash ? 7f : 4f);
+            var slashShoulder = heavy ? new Vector3(-22f, 42f, -32f) : new Vector3(-28f, leftSlash ? 36f : 25f, leftSlash ? -26f : -18f);
+            var slashElbow    = heavy ? new Vector3(20f, 0f, 0f) : new Vector3(22f, 0f, 0f);
+            var slashWrist    = heavy ? new Vector3(-10f, 10f, 24f) : new Vector3(-5f, 6f, leftSlash ? 22f : 15f);
+            var slashShield   = heavy ? new Vector3(28f, 0f, -22f) : new Vector3(18f, 0f, -16f);
+
+            // FOLLOW-THROUGH (a beat past the strike — overshoot)
+            var followTorso    = slashTorso * 1.10f;
+            var followShoulder = slashShoulder + new Vector3(8f, 4f, -4f);
+            var followElbow    = slashElbow + new Vector3(-6f, 0f, 0f);
+            var followWrist    = slashWrist + new Vector3(0f, 0f, 4f);
+            var followShield   = slashShield;
+
+            // RECOVERY back to combat idle
+            var idleTorso    = Vector3.zero;
+            var idleShoulder = new Vector3(12f, -4f, 12f);
+            var idleElbow    = new Vector3(24f, 0f, 0f);
+            var idleWrist    = new Vector3(-3f, 0f, 0f);
+            var idleShield   = new Vector3(8f, 0f, -11f);
+
+            // Phase timing — anticipation is short, windup is the longest, strike is
+            // the shortest (snap), follow-through holds, recovery eases out.
+            yield return BlendAttackPose(antiTorso,    antiShoulder,    antiElbow,    antiWrist,    antiShield,    0.7f, 0.06f);
+            yield return BlendAttackPose(windupTorso,  windupShoulder,  windupElbow,  windupWrist,  windupShield,  1.0f, heavy ? 0.16f : 0.10f);
+            yield return BlendAttackPose(slashTorso,   slashShoulder,   slashElbow,   slashWrist,   slashShield,   1.0f, heavy ? 0.07f : 0.05f);
+            yield return BlendAttackPose(followTorso,  followShoulder,  followElbow,  followWrist,  followShield,  0.85f, 0.06f);
+            yield return BlendAttackPose(idleTorso,    idleShoulder,    idleElbow,    idleWrist,    idleShield,    0.0f, heavy ? 0.30f : 0.22f);
 
             _attackWeight = 0f;
             _attackRoutine = null;

@@ -7,9 +7,11 @@ namespace Steading.AI
 {
     public class EnemyVisualAnimator : MonoBehaviour
     {
-        private const int BodyLatitude = 14;
-        private const int BodyLongitude = 28;
-        private const int LimbSegments = 24;
+        // Bumped from (14, 28, 24) so Draugr silhouettes are smooth instead of
+        // visibly faceted at melee range.
+        private const int BodyLatitude = 28;
+        private const int BodyLongitude = 56;
+        private const int LimbSegments = 48;
 
         private Transform _rig;
         private Transform _hips;
