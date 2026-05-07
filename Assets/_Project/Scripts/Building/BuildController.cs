@@ -1,5 +1,6 @@
 using System;
 using Mirror;
+using Steading.Player;
 using UnityEngine;
 
 namespace Steading.Building
@@ -272,11 +273,11 @@ namespace Steading.Building
             var cost = buildables[_selectedIndex].cost;
             if (cost == null || cost.Length == 0) return true;
 
-            var wallet = GetComponent<ResourceWallet>();
-            if (wallet == null) return true;
+            var inventory = GetComponent<PlayerInventory>();
+            if (inventory == null) return true;
             foreach (var c in cost)
             {
-                if (wallet.GetAmount(c.kind) < c.amount) return false;
+                if (inventory.GetAmount(c.kind) < c.amount) return false;
             }
             return true;
         }
@@ -351,11 +352,12 @@ namespace Steading.Building
             }
 
             // Resource cost check — server-authoritative, atomic spend.
-            var wallet = GetComponent<ResourceWallet>();
+            // Uses Steading.Player.PlayerInventory (the canonical wallet).
+            var inventory = GetComponent<PlayerInventory>();
             if (entry.cost != null && entry.cost.Length > 0)
             {
-                if (wallet == null) return;
-                if (!wallet.TrySpend(entry.cost)) return; // refund-safe: no-op on failure
+                if (inventory == null) return;
+                if (!inventory.TrySpend(entry.cost)) return; // refund-safe: no-op on failure
             }
 
             var instance = Instantiate(entry.prefab, pos, rot);

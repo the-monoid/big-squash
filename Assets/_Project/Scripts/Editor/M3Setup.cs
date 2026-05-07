@@ -2,6 +2,7 @@ using Mirror;
 using Steading.Building;
 using Steading.Combat;
 using Steading.Net;
+using Steading.Player;
 using Steading.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -135,12 +136,17 @@ namespace Steading.EditorTools
 
             UpdatePlayerPrefab(entries, ghostValid, ghostInvalid);
 
-            var treePrefab = CreateResourceNodePrefab(TreePrefabPath, "ResourceTree", ResourceKind.Wood, woodAmount: 5,
-                visualScale: new Vector3(0.6f, 3.5f, 0.6f), color: new Color(0.32f, 0.18f, 0.08f), hp: 60);
-            var rockPrefab = CreateResourceNodePrefab(RockPrefabPath, "ResourceRock", ResourceKind.Stone, woodAmount: 4,
-                visualScale: new Vector3(0.9f, 0.7f, 0.9f), color: new Color(0.55f, 0.55f, 0.58f), hp: 80);
+            // Trees require an axe; rocks require an axe too (codex's tool table only
+            // ships with WeaponKind.Axe wired into PlayerAttack's chop path right now,
+            // so we use it for both to keep the gather loop testable).
+            var treePrefab = CreateResourceNodePrefab(TreePrefabPath, "ResourceTree", ResourceKind.Wood, yield: 5,
+                visualScale: new Vector3(0.6f, 3.5f, 0.6f), color: new Color(0.32f, 0.18f, 0.08f), hp: 60, requiredWeapon: WeaponKind.Axe);
+            var rockPrefab = CreateResourceNodePrefab(RockPrefabPath, "ResourceRock", ResourceKind.Stone, yield: 4,
+                visualScale: new Vector3(0.9f, 0.7f, 0.9f), color: new Color(0.55f, 0.55f, 0.58f), hp: 80, requiredWeapon: WeaponKind.Axe);
 
-            RegisterPrefabsInNetworkManager(new[] { wallPrefab, floorPrefab, pillarPrefab, doorwayPrefab, treePrefab, rockPrefab });
+            // Tree + Rock prefabs intentionally excluded — codex's ResourceNode is
+            // a MonoBehaviour synced by nodeId, not a networked GameObject.
+            RegisterPrefabsInNetworkManager(new[] { wallPrefab, floorPrefab, pillarPrefab, doorwayPrefab });
 
             ScatterResourcesInWorld(treePrefab, rockPrefab);
 
@@ -253,7 +259,9 @@ namespace Steading.EditorTools
 
             var bc = root.GetComponent<BuildController>() ?? root.AddComponent<BuildController>();
             if (root.GetComponent<BuildHud>() == null) root.AddComponent<BuildHud>();
-            if (root.GetComponent<ResourceWallet>() == null) root.AddComponent<ResourceWallet>();
+            // PlayerInventory is the canonical wallet (defined in Steading.Player).
+            // BuildController + BuildHud both pull from it.
+            if (root.GetComponent<PlayerInventory>() == null) root.AddComponent<PlayerInventory>();
 
             var so = new SerializedObject(bc);
 
@@ -301,8 +309,8 @@ namespace Steading.EditorTools
             sc.SetSockets(sockets);
         }
 
-        private static GameObject CreateResourceNodePrefab(string path, string name, ResourceKind kind, int woodAmount,
-            Vector3 visualScale, Color color, int hp)
+        private static GameObject CreateResourceNodePrefab(string path, string name, ResourceKind kind, int yield,
+            Vector3 visualScale, Color color, int hp, WeaponKind requiredWeapon)
         {
             var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (existing != null) AssetDatabase.DeleteAsset(path);
@@ -326,16 +334,21 @@ namespace Steading.EditorTools
             }
             root.GetComponent<MeshRenderer>().sharedMaterial = matAsset;
 
-            root.AddComponent<NetworkIdentity>();
-            AddHealth(root, hp);
-
+            // Codex's ResourceNode is the canonical resource-gathering type
+            // (Steading.World.ResourceNode). It requires a specific weapon and
+            // routes loot through PlayerInventory.Add via PlayerAttack's RPC.
+            // We seed the prefab's SerializedFields and leave nodeId blank so
+            // Awake auto-assigns it from each scene instance's gameObject.name
+            // (otherwise all trees would share one ID and clobber each other in
+            // ResourceNode's static Dictionary).
             var node = root.AddComponent<ResourceNode>();
-            var so = new SerializedObject(node);
-            so.FindProperty("kind").enumValueIndex = (int)kind;
-            so.FindProperty("amount").intValue = woodAmount;
-            so.FindProperty("respawn").boolValue = true;
-            so.FindProperty("respawnSeconds").floatValue = 90f;
-            so.ApplyModifiedPropertiesWithoutUndo();
+            var nodeSo = new SerializedObject(node);
+            nodeSo.FindProperty("nodeId").stringValue = string.Empty;
+            nodeSo.FindProperty("resourceKind").enumValueIndex = (int)kind;
+            nodeSo.FindProperty("maxHealth").intValue = hp;
+            nodeSo.FindProperty("resourceYield").intValue = yield;
+            nodeSo.FindProperty("requiredWeapon").enumValueIndex = (int)requiredWeapon;
+            nodeSo.ApplyModifiedPropertiesWithoutUndo();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);

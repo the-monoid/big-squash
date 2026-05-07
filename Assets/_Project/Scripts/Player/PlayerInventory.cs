@@ -33,6 +33,44 @@ namespace Steading.Player
             }
         }
 
+        public int GetAmount(ResourceKind kind)
+        {
+            switch (kind)
+            {
+                case ResourceKind.Wood:  return _wood;
+                case ResourceKind.Stone: return _stone;
+            }
+            return 0;
+        }
+
+        public bool CanAfford(System.Collections.Generic.IList<Steading.Building.ResourceCost> cost)
+        {
+            if (cost == null || cost.Count == 0) return true;
+            for (int i = 0; i < cost.Count; i++)
+            {
+                if (GetAmount(cost[i].kind) < cost[i].amount) return false;
+            }
+            return true;
+        }
+
+        // Atomic deduct — returns true and spends if affordable, otherwise no-op.
+        [Server]
+        public bool TrySpend(System.Collections.Generic.IList<Steading.Building.ResourceCost> cost)
+        {
+            if (!CanAfford(cost)) return false;
+            if (cost == null) return true;
+
+            for (int i = 0; i < cost.Count; i++)
+            {
+                switch (cost[i].kind)
+                {
+                    case ResourceKind.Wood:  _wood  -= cost[i].amount; break;
+                    case ResourceKind.Stone: _stone -= cost[i].amount; break;
+                }
+            }
+            return true;
+        }
+
         private void OnGUI()
         {
             if (!isLocalPlayer) return;

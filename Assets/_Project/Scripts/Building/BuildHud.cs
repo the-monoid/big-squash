@@ -1,34 +1,31 @@
 using System.Text;
+using Steading.Player;
 using UnityEngine;
 
 namespace Steading.Building
 {
-    // Minimal OnGUI overlay shown while the local player is in build mode.
-    // - Resource bar (always visible to the local player, even outside build mode)
-    // - Selected buildable + cost + control reminders (build mode only)
+    // Build-mode HUD overlay. PlayerInventory already draws its own resource
+    // bar (top-left) via OnGUI, so this only renders the build bar (bottom)
+    // when the local player is in build mode.
     [RequireComponent(typeof(BuildController))]
     public class BuildHud : MonoBehaviour
     {
         private BuildController _bc;
-        private ResourceWallet _wallet;
+        private PlayerInventory _inventory;
         private GUIStyle _label;
         private GUIStyle _resBig;
-        private readonly StringBuilder _sb = new StringBuilder();
 
         private void Awake()
         {
             _bc = GetComponent<BuildController>();
-            _wallet = GetComponent<ResourceWallet>();
+            _inventory = GetComponent<PlayerInventory>();
         }
 
         private void OnGUI()
         {
-            if (_bc == null) return;
+            if (_bc == null || !_bc.InBuildMode) return;
             EnsureStyles();
-
-            DrawResourceBar();
-
-            if (_bc.InBuildMode) DrawBuildBar();
+            DrawBuildBar();
         }
 
         private void EnsureStyles()
@@ -48,25 +45,6 @@ namespace Steading.Building
                 normal = { textColor = new Color(1f, 0.95f, 0.85f) },
                 alignment = TextAnchor.MiddleLeft,
             };
-        }
-
-        private void DrawResourceBar()
-        {
-            if (_wallet == null) return;
-
-            // Top-left strip showing resource totals.
-            var bgRect = new Rect(8f, 8f, 220f, 30f);
-            GUI.color = new Color(0f, 0f, 0f, 0.45f);
-            GUI.DrawTexture(bgRect, Texture2D.whiteTexture);
-            GUI.color = Color.white;
-
-            _sb.Length = 0;
-            _sb.Append("🪵 ").Append(_wallet.Wood)
-               .Append("   🪨 ").Append(_wallet.Stone)
-               .Append("   ⚒ ").Append(_wallet.Iron)
-               .Append("   🐺 ").Append(_wallet.Hide);
-
-            GUI.Label(new Rect(bgRect.x + 8f, bgRect.y, bgRect.width - 8f, bgRect.height), _sb.ToString(), _resBig);
         }
 
         private void DrawBuildBar()
