@@ -5,6 +5,7 @@ using Mirror;
 using Steading.Net;
 using Steading.Player;
 using Steading.UI;
+// MainMenuPresenter lives in Steading.UI as well — this using imports both.
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -100,6 +101,7 @@ namespace Steading.EditorTools
             CreateMenuNetworkManager(playerPrefab);
             CreateEventSystem();
             CreateMainMenuController(playerPrefab);
+            CreateMainMenuPresenter();
 
             EditorSceneManager.SaveScene(scene, MainMenuScenePath);
         }
@@ -147,6 +149,34 @@ namespace Steading.EditorTools
             serialized.FindProperty("playerPrefab").objectReferenceValue = playerPrefab;
             serialized.FindProperty("worldScenePath").stringValue = WorldScenePath;
             serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void CreateMainMenuPresenter()
+        {
+            var go = new GameObject("MainMenuPresenter");
+            go.AddComponent<MainMenuPresenter>();
+            // Settings on the presenter resolve target/camera at runtime.
+
+            // Move the painterly sky into Resources/ so the presenter can load it
+            // from a built player too, not just the editor.
+            EnsureFolder("Assets/_Project/Resources");
+            var src = "Assets/_Project/Art/Materials/PainterlySky.mat";
+            var dst = "Assets/_Project/Resources/PainterlySky.mat";
+            if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), src)) &&
+                !File.Exists(Path.Combine(Directory.GetCurrentDirectory(), dst)))
+            {
+                AssetDatabase.CopyAsset(src, dst);
+            }
+        }
+
+        private static void EnsureFolder(string assetPath)
+        {
+            if (AssetDatabase.IsValidFolder(assetPath)) return;
+            var slash = assetPath.LastIndexOf('/');
+            var parent = slash >= 0 ? assetPath.Substring(0, slash) : "Assets";
+            var name = slash >= 0 ? assetPath.Substring(slash + 1) : assetPath;
+            EnsureFolder(parent);
+            AssetDatabase.CreateFolder(parent, name);
         }
 
         private static void UpdateBootstrapScene(GameObject playerPrefab)

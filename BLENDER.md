@@ -87,6 +87,32 @@ For static buildings/weapons:
 2. The `BuildableVisualEnhancer` on `Structure.cs` will detect imported meshes
    and skip its procedural geometry generation.
 
+## Quick-start: generate a real Viking character
+
+For artists who want a starting point instead of building from scratch:
+
+1. Save a new `.blend` inside `SourceArt/Blender/Player/` (e.g.
+   `VikingHero.blend`).
+2. Open the **Scripting** workspace in Blender.
+3. **Open Text Block** → pick `SourceArt/Blender/generate_player_blend.py`.
+4. Click **Run Script**.
+
+You'll get:
+- `VikingMesh` — high-poly humanoid (~6 k vertices, smooth-shaded, heroic
+  male proportions ~1.85m tall)
+- `VikingRig` — 19-bone armature with the Steading naming convention
+- Five basic materials (skin, tunic, hair, leather, iron)
+- `Player_VikingHero.fbx` exported into the Unity project's
+  `Assets/_Project/Art/Models/Characters/Player/`
+- `.blend` saved beside the script's path so you have something to iterate on
+
+Unity sees the FBX, the postprocessor configures it as a Humanoid avatar,
+extracts materials, and retargets them to `Steading/PainterlyLit`. Drag
+the imported model into a scene and you have a real character to replace
+the procedural capsule.
+
+Re-run the script after sculpting/editing in Blender to overwrite the FBX.
+
 ## What the add-on does NOT do
 
 - **Texture painting / UV unwrapping** — those happen in Blender as normal. The
