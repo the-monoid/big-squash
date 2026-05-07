@@ -16,13 +16,15 @@ namespace Steading.UI
     // Drop on a GameObject in MainMenu.unity. MainMenuSetup auto-attaches it.
     public class MainMenuPresenter : MonoBehaviour
     {
-        [Header("Camera Orbit")]
-        [SerializeField] private Transform target;          // character preview root
-        [SerializeField] private float orbitRadius = 4.4f;
-        [SerializeField] private float orbitHeight = 1.55f;
-        [SerializeField] private float orbitSpeedDeg = 8f;  // degrees per second
-        [SerializeField] private float lookHeight = 1.2f;
-        [SerializeField] private float fov = 36f;
+        [Header("Camera (does NOT orbit — codex's main menu lays out the panel on the LEFT and frames the character on the RIGHT, so we preserve that camera position and only do a tiny breathing micro-sway)")]
+        [SerializeField] private Transform target;            // character preview root
+        [SerializeField] private bool overrideCameraPosition = false;
+        [SerializeField] private Vector3 cameraPosition = new Vector3(0.55f, 1.45f, -4.45f);
+        [SerializeField] private Vector3 cameraLookAt = new Vector3(0.78f, 1.04f, 0.05f);
+        [SerializeField] private float swayAmplitudeY = 0.012f;
+        [SerializeField] private float swayAmplitudeX = 0.018f;
+        [SerializeField] private float swayRate = 0.18f;
+        [SerializeField] private float fov = 48f;             // matches codex's original
 
         [Header("Lighting")]
         [SerializeField] private Color keyLightColor  = new Color(1.20f, 1.05f, 0.78f);
@@ -40,7 +42,8 @@ namespace Steading.UI
         private Light _keyLight;
         private Light _rimLight;
         private Light _fillLight;
-        private float _angleDeg;
+        private Vector3 _basePosition;
+        private Vector3 _baseLookAt;
 
         private void Awake()
         {
@@ -52,15 +55,12 @@ namespace Steading.UI
 
         private void OnEnable()
         {
-            // Start the orbit at a nice 3/4 angle so the character isn't seen
-            // straight-on at frame 1.
-            _angleDeg = -22f;
-            UpdateCamera(0f);
+            CaptureBaseCameraPose();
         }
 
         private void Update()
         {
-            UpdateCamera(Time.deltaTime);
+            ApplyMicroSway();
         }
 
         // ----------------------------------------------------------------- setup
@@ -75,9 +75,12 @@ namespace Steading.UI
                 go.AddComponent<AudioListener>();
             }
             _cam.clearFlags = CameraClearFlags.Skybox;
-            _cam.fieldOfView = fov;
             _cam.nearClipPlane = 0.1f;
             _cam.farClipPlane = 200f;
+            // FOV: only override if we're also overriding the position. Otherwise
+            // accept whatever MainMenuSetup configured so the menu panel + character
+            // framing stays correct.
+            if (overrideCameraPosition) _cam.fieldOfView = fov;
         }
 
         private void ResolveTarget()
@@ -137,17 +140,34 @@ namespace Steading.UI
 
         // ----------------------------------------------------------------- per-frame
 
-        private void UpdateCamera(float dt)
+        // Either accept whatever pose the camera came in with (set by MainMenuSetup
+        // to frame the character on the right side past the menu panel) or apply
+        // our serialized override. The presenter never moves the camera further
+        // than the small breathing sway in ApplyMicroSway.
+        private void CaptureBaseCameraPose()
         {
             if (_cam == null) return;
 
-            _angleDeg = Mathf.Repeat(_angleDeg + orbitSpeedDeg * dt, 360f);
-            var rad = _angleDeg * Mathf.Deg2Rad;
+            if (overrideCameraPosition)
+            {
+                _cam.transform.position = cameraPosition;
+                _cam.transform.LookAt(cameraLookAt);
+            }
 
-            var pivot = target != null ? target.position : Vector3.zero;
-            var pos = pivot + new Vector3(Mathf.Sin(rad) * orbitRadius, orbitHeight, -Mathf.Cos(rad) * orbitRadius);
-            _cam.transform.position = pos;
-            _cam.transform.LookAt(pivot + Vector3.up * lookHeight);
+            _basePosition = _cam.transform.position;
+            _baseLookAt = _cam.transform.position + _cam.transform.forward * 5f;
+        }
+
+        // Tiny up/right sway around the base pose so the framing breathes without
+        // ever shifting the character off-screen or behind the menu panel.
+        private void ApplyMicroSway()
+        {
+            if (_cam == null) return;
+
+            var t = Time.time * swayRate * Mathf.PI * 2f;
+            var offset = new Vector3(Mathf.Sin(t * 0.7f) * swayAmplitudeX, Mathf.Sin(t) * swayAmplitudeY, 0f);
+            _cam.transform.position = _basePosition + offset;
+            _cam.transform.LookAt(_baseLookAt);
         }
     }
 }
