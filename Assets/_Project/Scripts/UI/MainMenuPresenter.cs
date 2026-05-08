@@ -108,7 +108,18 @@ namespace Steading.UI
             go.transform.SetParent(transform, worldPositionStays: false);
             go.transform.rotation = rot;
 
-            var l = go.GetComponent<Light>() ?? go.AddComponent<Light>();
+            // GetComponent + ?? doesn't trigger Unity's overloaded == operator,
+            // so a destroyed Light component still returns non-null and crashes
+            // on .type assignment. Use explicit `== null` to catch the
+            // fake-null state, and re-add a fresh Light if needed.
+            var l = go.GetComponent<Light>();
+            if (l == null)
+            {
+                // Defensive: clear any lingering destroyed component reference.
+                var stale = go.GetComponent<Light>();
+                if (stale != null) DestroyImmediate(stale);
+                l = go.AddComponent<Light>();
+            }
             l.type = LightType.Directional;
             l.color = color;
             l.intensity = intensity;

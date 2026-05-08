@@ -36,11 +36,17 @@ namespace Steading.Player
 
             if (cameraRigPrefab == null)
             {
-                Debug.LogWarning("[Steading] PlayerCameraRig: cameraRigPrefab is null. Run 'Steading/Animator: Build Player Camera Rig' or assign manually.");
+                Debug.LogError("[Steading] PlayerCameraRig: cameraRigPrefab is null. Run 'Steading/Animator: Build Player Camera Rig' AND THEN 'Steading/M1: Generate Bootstrap, World, and Player' so the field gets wired into Player.prefab.");
                 return;
             }
 
-            EnsureBrainOnSceneCamera();
+            var sceneCam = Camera.main;
+            Debug.Log(sceneCam != null
+                ? $"[Steading] Camera.main resolved to '{sceneCam.name}' at {sceneCam.transform.position}."
+                : "[Steading] Camera.main is NULL — no MainCamera-tagged camera in scene. Cinemachine cannot drive anything.");
+
+            var brainAdded = EnsureBrainOnSceneCamera();
+            Debug.Log($"[Steading] Brain on scene camera: {(brainAdded ? "ADDED" : "already present (or no Camera.main)")}.");
 
             _spawnedRig = Instantiate(cameraRigPrefab);
             _spawnedRig.name = "PlayerThirdPersonCam (Local)";
@@ -48,7 +54,19 @@ namespace Steading.Player
             var target = ResolveCameraTarget();
             BindRig(_spawnedRig, target);
 
-            Debug.Log($"[Steading] PlayerCameraRig bound to '{target.name}' at world {target.position}.");
+#if STEADING_CINEMACHINE
+            var cm = _spawnedRig.GetComponentInChildren<CinemachineCamera>();
+            if (cm != null)
+            {
+                Debug.Log($"[Steading] CmCamera bound — Follow='{(cm.Follow ? cm.Follow.name : "null")}' LookAt='{(cm.LookAt ? cm.LookAt.name : "null")}' Priority={cm.Priority.Value}");
+            }
+            else
+            {
+                Debug.LogError("[Steading] Spawned rig has no CinemachineCamera child! The prefab is broken — re-run 'Steading/Animator: Build Player Camera Rig'.");
+            }
+#else
+            Debug.LogWarning("[Steading] Cinemachine not detected via STEADING_CINEMACHINE. Camera will not follow.");
+#endif
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
@@ -99,16 +117,18 @@ namespace Steading.Player
 
         // ------------------------------------------------- Cinemachine plumbing
 
-        private static void EnsureBrainOnSceneCamera()
+        private static bool EnsureBrainOnSceneCamera()
         {
 #if STEADING_CINEMACHINE
             var cam = Camera.main;
-            if (cam == null) return;
+            if (cam == null) return false;
             if (cam.GetComponent<CinemachineBrain>() == null)
             {
                 cam.gameObject.AddComponent<CinemachineBrain>();
+                return true;
             }
 #endif
+            return false;
         }
 
         private static void BindRig(GameObject rig, Transform target)
