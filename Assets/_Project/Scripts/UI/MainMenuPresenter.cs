@@ -90,7 +90,7 @@ namespace Steading.UI
             // Look for a preview character in the scene (CharacterCustomization or
             // PlayerVisualAnimator are both good anchors). If nothing found, use
             // world origin.
-            var animator = FindFirstObjectByType<Steading.Player.PlayerVisualAnimator>();
+            var animator = FindFirstObjectByType<Steading.Player.PlayerAnimatorBridge>();
             if (animator != null) target = animator.transform;
         }
 

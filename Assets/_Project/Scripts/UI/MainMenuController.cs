@@ -54,7 +54,7 @@ namespace Steading.UI
         };
 
         private CharacterCustomization _customization;
-        private PlayerVisualAnimator _previewAnimator;
+        private PlayerAnimatorBridge _previewAnimator;
         private Transform _previewRoot;
         private InputField _nameField;
         private Text _statusText;
@@ -179,7 +179,7 @@ namespace Steading.UI
             preview.transform.position = new Vector3(1.05f, 0f, -0.15f);
             preview.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
             _previewRoot = preview.transform;
-            _previewAnimator = preview.AddComponent<PlayerVisualAnimator>();
+            _previewAnimator = preview.AddComponent<PlayerAnimatorBridge>();
         }
 
         private void BuildCanvas()
