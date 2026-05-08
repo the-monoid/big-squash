@@ -148,16 +148,26 @@ namespace Steading.Combat
         }
 
         // Convenience: server-side seed the starter weapons on spawn.
+        // Defensive: any failure inside the library lookup is caught so a
+        // stale prefab doesn't cascade into "player never spawns".
         public override void OnStartServer()
         {
             base.OnStartServer();
-            var lib = WeaponLibrary.Instance;
-            if (lib != null)
+            try
             {
-                foreach (var idx in lib.StarterIndices())
+                var lib = WeaponLibrary.Instance;
+                if (lib != null)
                 {
-                    if (idx >= 0 && idx < 64) _unlockedWeaponMask |= (1L << idx);
+                    foreach (var idx in lib.StarterIndices())
+                    {
+                        if (idx >= 0 && idx < 64) _unlockedWeaponMask |= (1L << idx);
+                    }
                 }
+                Debug.Log($"[Steading] PlayerAttack.OnStartServer fired for netId={netId} (mask={_unlockedWeaponMask})");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError($"[Steading] PlayerAttack.OnStartServer threw: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
