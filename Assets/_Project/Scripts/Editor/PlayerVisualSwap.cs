@@ -88,6 +88,12 @@ namespace Steading.EditorTools
                 if (avatar != null) animator.avatar = avatar;
                 animator.applyRootMotion = false;
                 animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+                // Synty SM_Chr_Male_01 ships with a default-blue clothing tint
+                // that reads as "the character is blue" from a distance. Force
+                // a Viking palette across each renderer's material slots so
+                // skin lands tan, hair brown, clothing earth tones.
+                ApplyVikingPalette(visual);
             }
 
             AssetDatabase.SaveAssets();
@@ -98,6 +104,51 @@ namespace Steading.EditorTools
                 "Player.prefab now uses the Synty humanoid mesh; Mixamo animations " +
                 "retarget at runtime via Mecanim. Press Play > Host to verify.",
                 "OK");
+        }
+
+        // Override the per-renderer materials so the Viking reads in earth-tone
+        // colors (tan skin, brown leather, off-white linen) instead of Synty's
+        // default blue jumpsuit. Walks every Renderer in the visual subtree and
+        // creates a fresh material instance per slot so we don't mutate the
+        // shared asset (other Synty characters keep their look).
+        private static void ApplyVikingPalette(GameObject visual)
+        {
+            var skin     = new Color(0.86f, 0.70f, 0.56f);   // light tan
+            var hair     = new Color(0.32f, 0.20f, 0.10f);   // dark brown
+            var leather  = new Color(0.40f, 0.26f, 0.14f);   // saddle brown
+            var linen    = new Color(0.66f, 0.55f, 0.40f);   // off-white linen
+            var iron     = new Color(0.46f, 0.46f, 0.50f);   // dark steel
+            var defaultColor = leather;
+
+            foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+            {
+                var sharedMats = r.sharedMaterials;
+                var newMats = new Material[sharedMats.Length];
+                for (int i = 0; i < sharedMats.Length; i++)
+                {
+                    var src = sharedMats[i];
+                    if (src == null) continue;
+                    // Skip already-painterly materials — they already have proper tints.
+                    if (src.shader != null && src.shader.name == "Steading/PainterlyLit")
+                    {
+                        newMats[i] = src;
+                        continue;
+                    }
+                    var mat = new Material(src);
+                    mat.name = src.name + "_Steading";
+                    var name = src.name.ToLowerInvariant();
+                    Color tint =
+                        name.Contains("skin")  || name.Contains("face")  || name.Contains("hand") ? skin :
+                        name.Contains("hair")  || name.Contains("beard") ? hair :
+                        name.Contains("metal") || name.Contains("iron")  || name.Contains("steel") ? iron :
+                        name.Contains("cloth") || name.Contains("shirt") || name.Contains("linen") ? linen :
+                        defaultColor;
+                    if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", tint);
+                    if (mat.HasProperty("_Color"))     mat.SetColor("_Color",     tint);
+                    newMats[i] = mat;
+                }
+                r.sharedMaterials = newMats;
+            }
         }
     }
 }

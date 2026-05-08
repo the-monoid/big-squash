@@ -88,6 +88,11 @@ namespace Steading.AI
                    ?? (IEnemyVisuals)GetComponent<EnemyVisualAnimator>();
             if (_visual == null)
             {
+                Debug.LogWarning(
+                    $"[Steading] {name} has neither EnemyAnimatorBridge nor EnemyVisualAnimator — " +
+                    "Draugr will fall back to a procedural rig. Run " +
+                    "Steading > Animator: Build Enemy Animator + Swap Draugr Visual to fix.",
+                    this);
                 _visual = gameObject.AddComponent<EnemyVisualAnimator>();
             }
         }

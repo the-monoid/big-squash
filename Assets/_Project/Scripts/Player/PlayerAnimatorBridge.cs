@@ -160,6 +160,13 @@ namespace Steading.Player
         {
             if (_animator == null) return;
 
+            // Defensive: any FBX clip with embedded root motion can re-enable
+            // applyRootMotion mid-game even after our once-on-import setting.
+            // Keep it false every frame so the animator never moves the body
+            // out from under the CharacterController (root cause of "slide
+            // back to start" after combo).
+            if (_animator.applyRootMotion) _animator.applyRootMotion = false;
+
             var dt = Time.deltaTime;
             var pos = transform.position;
             var dx = (pos - _lastPosition);

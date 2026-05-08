@@ -33,10 +33,14 @@ namespace Steading.EditorTools
         private const float NoiseLacunarity = 2.0f;
         private const float NoisePersist = 0.5f;
 
-        // Mountain layer parameters (ridge noise added on top of base hills)
+        // Mountain layer parameters (ridge noise added on top of base hills).
+        // Threshold dropped 0.55 -> 0.40 because the previous value rarely
+        // fired across the 1024m world; peaks bumped to 90m so they read
+        // clearly against the rolling-hill base.
         private const float MountainFreq = 0.0035f;
-        private const float MountainHeight = 70f;       // peaks reach ~70m above base
-        private const float MountainThreshold = 0.55f;  // ridge value below this is flattened
+        private const float MountainHeight = 90f;
+        private const float MountainThreshold = 0.40f;
+        private const int   MountainOctaves = 5;        // was 4 — sharper ridges
 
         [MenuItem("Steading/Art: Generate Steading Terrain (large rolling map)")]
         public static void Build()
@@ -212,7 +216,7 @@ namespace Steading.EditorTools
             float rAmp = 1f;
             float rFreq = MountainFreq;
             float rMaxAmp = 0f;
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < MountainOctaves; i++)
             {
                 float pn = Mathf.PerlinNoise(x * rFreq + 5000f, z * rFreq + 5000f);
                 float ridge = 1f - Mathf.Abs(pn - 0.5f) * 2f;     // 0..1, peaks at ridge lines
