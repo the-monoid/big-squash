@@ -51,22 +51,36 @@ namespace Steading.AI
         protected float _alertUntil;
         protected bool _attackPending;
         protected Coroutine _knockbackRoutine;
-        private EnemyVisualAnimator _visual;
+        // IEnemyVisuals lets us plug either the procedural EnemyVisualAnimator
+        // (legacy) or the new Mecanim-driven EnemyAnimatorBridge interchangeably.
+        private IEnemyVisuals _visual;
 
         protected virtual void Awake()
         {
             if (GetComponent<EnemyActor>() == null) gameObject.AddComponent<EnemyActor>();
             _agent = GetComponent<NavMeshAgent>();
             _health = GetComponent<Health>();
-            _visual = GetComponent<EnemyVisualAnimator>();
-            if (_visual == null) _visual = gameObject.AddComponent<EnemyVisualAnimator>();
+            ResolveVisual();
         }
 
         public override void OnStartClient()
         {
             base.OnStartClient();
-            if (_visual == null) _visual = GetComponent<EnemyVisualAnimator>();
-            if (_visual != null) _visual.EnsureRig();
+            ResolveVisual();
+            _visual?.EnsureRig();
+        }
+
+        private void ResolveVisual()
+        {
+            // Prefer the new Mecanim bridge if present; otherwise fall back to
+            // the procedural rig. Auto-add the procedural one only as a last
+            // resort so legacy prefabs keep working.
+            _visual = (IEnemyVisuals)GetComponent<EnemyAnimatorBridge>()
+                   ?? (IEnemyVisuals)GetComponent<EnemyVisualAnimator>();
+            if (_visual == null)
+            {
+                _visual = gameObject.AddComponent<EnemyVisualAnimator>();
+            }
         }
 
         public override void OnStartServer()

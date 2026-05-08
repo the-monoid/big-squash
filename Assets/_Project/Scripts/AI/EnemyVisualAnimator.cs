@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Steading.AI
 {
-    public class EnemyVisualAnimator : MonoBehaviour
+    public class EnemyVisualAnimator : MonoBehaviour, IEnemyVisuals
     {
         // Bumped from (14, 28, 24) so Draugr silhouettes are smooth instead of
         // visibly faceted at melee range.
