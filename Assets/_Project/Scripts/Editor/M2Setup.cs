@@ -138,15 +138,31 @@ namespace Steading.EditorTools
             if (prefabsProp == null) return;
 
             // Avoid duplicate entries.
+            bool already = false;
             for (int i = 0; i < prefabsProp.arraySize; i++)
             {
                 var elem = prefabsProp.GetArrayElementAtIndex(i);
-                if (elem.objectReferenceValue == draugrPrefab) return;
+                if (elem.objectReferenceValue == draugrPrefab) { already = true; break; }
+            }
+            if (!already)
+            {
+                prefabsProp.arraySize++;
+                prefabsProp.GetArrayElementAtIndex(prefabsProp.arraySize - 1).objectReferenceValue = draugrPrefab;
+                so.ApplyModifiedPropertiesWithoutUndo();
             }
 
-            prefabsProp.arraySize++;
-            prefabsProp.GetArrayElementAtIndex(prefabsProp.arraySize - 1).objectReferenceValue = draugrPrefab;
-            so.ApplyModifiedPropertiesWithoutUndo();
+            // Wire RaidDirector's draugrPrefab to whatever we just registered.
+            var director = Object.FindFirstObjectByType<Steading.AI.RaidDirector>();
+            if (director != null)
+            {
+                var dso = new SerializedObject(director);
+                var p = dso.FindProperty("draugrPrefab");
+                if (p != null && p.objectReferenceValue != draugrPrefab)
+                {
+                    p.objectReferenceValue = draugrPrefab;
+                    dso.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
 
             EditorSceneManager.SaveScene(scene);
         }
@@ -185,6 +201,25 @@ namespace Steading.EditorTools
             so.FindProperty("addPerWave").intValue = 1;
             so.FindProperty("maxAlive").intValue = 14;
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            // RaidDirector + RaidHud — World_Test scene-level. Idempotent: nuke
+            // any prior versions and re-add. This way the director's draugrPrefab
+            // is always wired to the freshly-built Draugr.prefab.
+            var existingDirector = GameObject.Find("RaidDirector");
+            if (existingDirector != null) Object.DestroyImmediate(existingDirector);
+            var existingHud = GameObject.Find("RaidHud");
+            if (existingHud != null) Object.DestroyImmediate(existingHud);
+
+            var directorGo = new GameObject("RaidDirector");
+            directorGo.AddComponent<NetworkIdentity>();
+            var director = directorGo.AddComponent<Steading.AI.RaidDirector>();
+            var dso = new SerializedObject(director);
+            var draugrProp = dso.FindProperty("draugrPrefab");
+            if (draugrProp != null) draugrProp.objectReferenceValue = draugrPrefab;
+            dso.ApplyModifiedPropertiesWithoutUndo();
+
+            var hudGo = new GameObject("RaidHud");
+            hudGo.AddComponent<Steading.UI.RaidHud>();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);

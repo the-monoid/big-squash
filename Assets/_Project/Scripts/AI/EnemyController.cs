@@ -44,6 +44,10 @@ namespace Steading.AI
         protected NavMeshAgent _agent;
         protected Health _health;
         protected Transform _target;
+        // Override aggro target — set by RaidDirector when this Draugr is
+        // part of a war-band tasked with hunting a specific player or station.
+        protected Transform _overrideTarget;
+        public void SetOverrideTarget(Transform t) { _overrideTarget = t; }
         protected Vector3 _homePosition;
         protected float _nextAttackTime;
         protected float _nextRetargetTime;
@@ -113,7 +117,10 @@ namespace Steading.AI
             if (Time.time >= _nextRetargetTime || _target == null)
             {
                 _nextRetargetTime = Time.time + retargetInterval;
-                _target = FindClosestPlayer();
+                // Raid-director override beats normal aggro picking. Stays
+                // locked on the assigned target until that target is gone.
+                if (_overrideTarget != null) _target = _overrideTarget;
+                else _target = FindClosestPlayer();
             }
 
             if (_target == null)
