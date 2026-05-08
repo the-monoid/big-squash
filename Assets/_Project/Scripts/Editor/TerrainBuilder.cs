@@ -20,17 +20,22 @@ namespace Steading.EditorTools
         private const string WorldScenePath = "Assets/_Project/Scenes/World_Test.unity";
         private const string MaterialPath   = "Assets/_Project/Art/Materials/Terrain.mat";
 
-        // Map size + resolution. 200m × 200m at 1.5m grid = 134×134 verts ≈ 18k.
-        private const float MapSize = 200f;
-        private const float CellSize = 1.5f;
+        // Map size + resolution. 1024m × 1024m at 4m grid = 257×257 verts ≈ 66k.
+        private const float MapSize = 1024f;
+        private const float CellSize = 4f;
 
-        // Height curve: lerp(MinH, MaxH, fbm(noise))
-        private const float MinHeight = -1.5f;
-        private const float MaxHeight =  18f;
-        private const float NoiseFreq = 0.018f;
-        private const int   NoiseOctaves = 4;
+        // Height curve: lerp(MinH, MaxH, fbm(noise)) + ridge-noise mountain pass
+        private const float MinHeight = -2.5f;
+        private const float MaxHeight =  80f;
+        private const float NoiseFreq = 0.005f;     // lower = wider rolling hills at this scale
+        private const int   NoiseOctaves = 5;
         private const float NoiseLacunarity = 2.0f;
         private const float NoisePersist = 0.5f;
+
+        // Mountain layer parameters (ridge noise added on top of base hills)
+        private const float MountainFreq = 0.0035f;
+        private const float MountainHeight = 70f;       // peaks reach ~70m above base
+        private const float MountainThreshold = 0.55f;  // ridge value below this is flattened
 
         [MenuItem("Steading/Art: Generate Steading Terrain (large rolling map)")]
         public static void Build()
@@ -69,6 +74,9 @@ namespace Steading.EditorTools
             nav.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
             nav.layerMask = ~0;
             nav.BuildNavMesh();
+
+            // Scatter Synty foliage by biome band.
+            ScatterFoliage(terrainGo);
 
             // Move PlayerSpawn to a guaranteed-walkable point near origin.
             var spawn = GameObject.Find("PlayerSpawn");
@@ -171,6 +179,7 @@ namespace Steading.EditorTools
 
         private static float SampleHeight(float x, float z)
         {
+            // ---- Base rolling hills (multi-octave Perlin) ----
             float n = 0f;
             float amp = 1f;
             float freq = NoiseFreq;
@@ -182,10 +191,38 @@ namespace Steading.EditorTools
                 amp *= NoisePersist;
                 freq *= NoiseLacunarity;
             }
-            n /= maxAmp;                              // 0..1
-            // Sharpen the curve so flats are flatter and peaks are pointier.
+            n /= maxAmp;                                  // 0..1
             n = Mathf.SmoothStep(0f, 1f, n);
-            return Mathf.Lerp(MinHeight, MaxHeight, n);
+            float baseHeight = Mathf.Lerp(0f, MaxHeight * 0.35f, n);
+
+            // ---- Mountain layer: ridge noise (1 - |fbm - 0.5| * 2) ----
+            // Produces sharp ridge lines characteristic of mountain ranges.
+            // Thresholded so most of the map stays flat-ish; only ridges rise.
+            float r = 0f;
+            float rAmp = 1f;
+            float rFreq = MountainFreq;
+            float rMaxAmp = 0f;
+            for (int i = 0; i < 4; i++)
+            {
+                float pn = Mathf.PerlinNoise(x * rFreq + 5000f, z * rFreq + 5000f);
+                float ridge = 1f - Mathf.Abs(pn - 0.5f) * 2f;     // 0..1, peaks at ridge lines
+                r += ridge * rAmp;
+                rMaxAmp += rAmp;
+                rAmp *= 0.55f;
+                rFreq *= 2.1f;
+            }
+            r /= rMaxAmp;
+            float mountainContribution = 0f;
+            if (r > MountainThreshold)
+            {
+                float t = (r - MountainThreshold) / (1f - MountainThreshold);
+                t = t * t;                                  // square for steeper falloff
+                mountainContribution = t * MountainHeight;
+            }
+
+            float h = baseHeight + mountainContribution;
+            // Sea-floor floor — anything way down gets a -2.5m bottom.
+            return Mathf.Max(h, MinHeight);
         }
 
         private static float ComputeSlope(Vector3[] positions, int verts, int i)
@@ -208,26 +245,120 @@ namespace Steading.EditorTools
 
         private static Color32 PickVertexColor(float height, float slope)
         {
-            // Color tiers (the painterly shader picks them up via vertex tint):
-            //   sand/dirt   — low altitude
-            //   grass       — mid altitude, low slope
-            //   stone       — anywhere with high slope OR high altitude
-            //   snow        — peaks
-            Color32 grass  = new Color32(0x6E, 0x8E, 0x4A, 0xFF);
-            Color32 dirt   = new Color32(0x6E, 0x57, 0x3A, 0xFF);
-            Color32 stone  = new Color32(0x70, 0x70, 0x76, 0xFF);
-            Color32 snow   = new Color32(0xE2, 0xE6, 0xE8, 0xFF);
+            // Biome bands by altitude (Valheim-leaning palette):
+            //   beach        -2.5m → 1m   warm tan
+            //   plains/grass 1m → 12m     bright green
+            //   forest       12m → 28m    deeper green (the woodland belt)
+            //   stone        28m → 55m    slate grey
+            //   snow         55m+ or steep   off-white
+            Color32 beach     = new Color32(0xCC, 0xB6, 0x8A, 0xFF);
+            Color32 plains    = new Color32(0x78, 0x99, 0x4A, 0xFF);
+            Color32 forest    = new Color32(0x4A, 0x6E, 0x32, 0xFF);
+            Color32 stone     = new Color32(0x68, 0x6C, 0x70, 0xFF);
+            Color32 snow      = new Color32(0xE2, 0xE6, 0xE8, 0xFF);
 
-            float steepBlend = Mathf.SmoothStep(0.35f, 0.85f, slope);
-            float snowBlend  = Mathf.SmoothStep(0.65f * MaxHeight, 0.92f * MaxHeight, height);
-            float dirtBlend  = Mathf.SmoothStep(0f, 1.5f, -height);   // below sea-ish
+            // Altitude blend factors
+            float beachT  = Mathf.SmoothStep(1f, -1f, height);                                // 1m → 0
+            float plainsT = Mathf.SmoothStep(2f, 12f, height) * (1f - Mathf.SmoothStep(12f, 22f, height));
+            float forestT = Mathf.SmoothStep(12f, 22f, height) * (1f - Mathf.SmoothStep(28f, 38f, height));
+            float stoneT  = Mathf.SmoothStep(28f, 40f, height);
+            float snowT   = Mathf.SmoothStep(48f, 65f, height);
 
-            // base = grass; lerp toward dirt at low altitude, stone with steepness, snow on peaks.
-            Color c = grass;
-            c = Color.Lerp(c, (Color)dirt, dirtBlend);
-            c = Color.Lerp(c, (Color)stone, steepBlend);
-            c = Color.Lerp(c, (Color)snow, snowBlend);
+            // Slope override: steep faces go stone regardless of altitude.
+            float slopeStone = Mathf.SmoothStep(0.45f, 0.9f, slope);
+
+            // Composite: start from plains, layer by largest weight.
+            Color c = (Color)plains;
+            c = Color.Lerp(c, (Color)beach,  beachT);
+            c = Color.Lerp(c, (Color)forest, forestT);
+            c = Color.Lerp(c, (Color)stone,  Mathf.Max(stoneT, slopeStone));
+            c = Color.Lerp(c, (Color)snow,   snowT);
             return c;
+        }
+
+        // ---- Foliage scatter ----
+
+        private static readonly string[] TreePrefabPaths =
+        {
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Tree_01.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Tree_02.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Tree_03.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Tree_04.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_TreeDead_01.prefab",
+        };
+        private static readonly string[] RockPrefabPaths =
+        {
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Small_Rocks_01.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Small_Rocks_02.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Small_Rocks_03.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Small_Rocks_04.prefab",
+            "Assets/Synty/PolygonStarter/Prefabs/SM_Generic_Small_Rocks_05.prefab",
+        };
+
+        private static void ScatterFoliage(GameObject terrainGo)
+        {
+            var trees = LoadPrefabs(TreePrefabPaths);
+            var rocks = LoadPrefabs(RockPrefabPaths);
+            if (trees.Count == 0 && rocks.Count == 0)
+            {
+                Debug.LogWarning("[Steading] No Synty foliage/rock prefabs found — skip scatter.");
+                return;
+            }
+
+            // Reproducible scatter via a fixed seed so the world looks the
+            // same each rebuild.
+            var rand = new System.Random(31337);
+            var scatterRoot = new GameObject("Foliage_Scatter").transform;
+            scatterRoot.SetParent(terrainGo.transform, worldPositionStays: false);
+
+            // ~150 trees in the forest band (12-28m altitude) + plains (4-12m)
+            int placed = 0;
+            int attempts = 0;
+            while (placed < 180 && attempts < 1500)
+            {
+                attempts++;
+                float x = ((float)rand.NextDouble() - 0.5f) * MapSize * 0.95f;
+                float z = ((float)rand.NextDouble() - 0.5f) * MapSize * 0.95f;
+                float y = SampleHeight(x, z);
+                if (y < 1.5f || y > 35f) continue; // skip beach + high stone
+                var prefab = trees[rand.Next(trees.Count)];
+                var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scatterRoot);
+                inst.transform.position = new Vector3(x, y - 0.05f, z);
+                inst.transform.rotation = Quaternion.Euler(0f, (float)rand.NextDouble() * 360f, 0f);
+                float scl = 0.85f + (float)rand.NextDouble() * 0.45f;
+                inst.transform.localScale = new Vector3(scl, scl, scl);
+                placed++;
+            }
+
+            // ~60 rocks in the stone band + on slopes
+            placed = 0;
+            attempts = 0;
+            while (placed < 60 && attempts < 800)
+            {
+                attempts++;
+                float x = ((float)rand.NextDouble() - 0.5f) * MapSize * 0.95f;
+                float z = ((float)rand.NextDouble() - 0.5f) * MapSize * 0.95f;
+                float y = SampleHeight(x, z);
+                if (y < 0f) continue;
+                var prefab = rocks[rand.Next(rocks.Count)];
+                var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scatterRoot);
+                inst.transform.position = new Vector3(x, y, z);
+                inst.transform.rotation = Quaternion.Euler(0f, (float)rand.NextDouble() * 360f, 0f);
+                float scl = 0.7f + (float)rand.NextDouble() * 1.6f;
+                inst.transform.localScale = new Vector3(scl, scl, scl);
+                placed++;
+            }
+        }
+
+        private static System.Collections.Generic.List<GameObject> LoadPrefabs(string[] paths)
+        {
+            var list = new System.Collections.Generic.List<GameObject>();
+            foreach (var p in paths)
+            {
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(p);
+                if (go != null) list.Add(go);
+            }
+            return list;
         }
 
         private static void EnsureSun()
