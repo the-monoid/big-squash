@@ -94,6 +94,16 @@ namespace Steading.Combat
 
         [SyncVar] private bool _blocking;
 
+        // Bitmask: bit N set means WeaponLibrary.weapons[N] is unlocked. Server
+        // sets bits in ServerUnlockWeapon when a craft succeeds; starter
+        // weapons are seeded on spawn.
+        [SyncVar] private long _unlockedWeaponMask = 0;
+
+        // Tier index per weapon family — selects which WeaponDef from
+        // WeaponLibrary drives stats. 0 = wood (starter), 1 = bronze, etc.
+        [SyncVar] private int _swordTier = 0;
+        [SyncVar] private int _axeTier = 0;
+
         private float _nextAttackTime;
         private float _nextBashTime;
         private float _nextRushTime;
@@ -117,6 +127,57 @@ namespace Steading.Combat
 
         public WeaponKind EquippedWeapon => _equippedWeapon;
         public bool IsBlocking => _blocking;
+
+        public bool IsUnlocked(int weaponIndex) => weaponIndex >= 0 && (_unlockedWeaponMask & (1L << weaponIndex)) != 0L;
+
+        // Unlock a weapon from CraftingStation.CmdCraft (server only). Sets
+        // the bit and auto-equips if it's a same-family upgrade.
+        [Server]
+        public void ServerUnlockWeapon(int weaponIndex)
+        {
+            if (weaponIndex < 0 || weaponIndex >= 64) return;
+            var lib = WeaponLibrary.Instance;
+            if (lib == null) return;
+            var def = lib.GetByIndex(weaponIndex);
+            if (def == null) return;
+
+            _unlockedWeaponMask |= (1L << weaponIndex);
+            // Auto-equip the new tier if it matches the currently-equipped family.
+            if (def.kind == WeaponKind.Sword) _swordTier = (int)def.tier;
+            if (def.kind == WeaponKind.Axe) _axeTier = (int)def.tier;
+        }
+
+        // Convenience: server-side seed the starter weapons on spawn.
+        public override void OnStartServer()
+        {
+            base.OnStartServer();
+            var lib = WeaponLibrary.Instance;
+            if (lib != null)
+            {
+                foreach (var idx in lib.StarterIndices())
+                {
+                    if (idx >= 0 && idx < 64) _unlockedWeaponMask |= (1L << idx);
+                }
+            }
+        }
+
+        // Look up the currently-active WeaponDef for the equipped weapon kind
+        // based on the player's tier SyncVar. Falls back to null when the
+        // library hasn't loaded yet — callers should still respect inline
+        // serialized fields for legacy compat.
+        private WeaponDef GetActiveDef()
+        {
+            var lib = WeaponLibrary.Instance;
+            if (lib == null) return null;
+            var targetTier = (_equippedWeapon == WeaponKind.Sword) ? _swordTier : _axeTier;
+            for (int i = 0; i < lib.weapons.Count; i++)
+            {
+                var w = lib.weapons[i];
+                if (w == null) continue;
+                if (w.kind == _equippedWeapon && (int)w.tier == targetTier) return w;
+            }
+            return null;
+        }
 
         private void Awake()
         {
@@ -785,22 +846,50 @@ namespace Steading.Combat
             if (root != null) root.localScale = original;
         }
 
+        // Weapon stat lookup. Prefers the active WeaponDef (set by tier
+        // crafting); falls back to the inline starter values if no library is
+        // loaded. This keeps Wood-tier behavior unchanged when the player
+        // hasn't crafted anything yet.
         private int GetDamage(WeaponKind weapon, bool heavy, int comboStep)
         {
-            var baseDamage = weapon == WeaponKind.Axe
-                ? (heavy ? axeHeavyDamage : axeLightDamage)
-                : (heavy ? swordHeavyDamage : swordLightDamage);
+            var def = GetActiveDef();
+            int baseDamage;
+            if (def != null && def.kind == weapon)
+            {
+                baseDamage = heavy ? def.damageHeavy : def.damageLight;
+            }
+            else
+            {
+                baseDamage = weapon == WeaponKind.Axe
+                    ? (heavy ? axeHeavyDamage : axeLightDamage)
+                    : (heavy ? swordHeavyDamage : swordLightDamage);
+            }
             return !heavy && comboStep == 2 ? Mathf.RoundToInt(baseDamage * 1.35f) : baseDamage;
         }
 
         private int GetChopDamage(WeaponKind weapon, bool heavy)
         {
             if (weapon != WeaponKind.Axe) return 1;
+            // Tier scaling: heavier-tier axes chop faster (defs adjust this via
+            // damageHeavy; we treat chop = damageHeavy * 0.6 for higher tiers).
+            var def = GetActiveDef();
+            if (def != null && def.kind == WeaponKind.Axe)
+            {
+                int t = (int)def.tier;
+                return heavy
+                    ? Mathf.RoundToInt(axeHeavyChopDamage * (1f + 0.35f * t))
+                    : Mathf.RoundToInt(axeChopDamage * (1f + 0.35f * t));
+            }
             return heavy ? axeHeavyChopDamage : axeChopDamage;
         }
 
         private float GetCooldown(WeaponKind weapon, bool heavy)
         {
+            var def = GetActiveDef();
+            if (def != null && def.kind == weapon)
+            {
+                return heavy ? def.cooldownHeavy : def.cooldownLight;
+            }
             if (weapon == WeaponKind.Axe) return heavy ? axeHeavyCooldown : axeCooldown;
             return heavy ? swordHeavyCooldown : swordCooldown;
         }

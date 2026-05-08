@@ -20,8 +20,12 @@ namespace Steading.EditorTools
         private const string FloorPrefabPath = PrefabsDir + "/Floor.prefab";
         private const string PillarPrefabPath = PrefabsDir + "/Pillar.prefab";
         private const string DoorwayPrefabPath = PrefabsDir + "/Doorway.prefab";
+        private const string WorkbenchPrefabPath = PrefabsDir + "/Workbench.prefab";
         private const string TreePrefabPath = PrefabsDir + "/ResourceTree.prefab";
         private const string RockPrefabPath = PrefabsDir + "/ResourceRock.prefab";
+        private const string BronzeOrePath = PrefabsDir + "/ResourceBronzeOre.prefab";
+        private const string IronOrePath   = PrefabsDir + "/ResourceIronOre.prefab";
+        private const string SteelOrePath  = PrefabsDir + "/ResourceSteelOre.prefab";
         private const string GhostValidMatPath = ArtDir + "/GhostValid.mat";
         private const string GhostInvalidMatPath = ArtDir + "/GhostInvalid.mat";
         private const string WoodMatPath = ArtDir + "/BuildableWood.mat";
@@ -52,6 +56,7 @@ namespace Steading.EditorTools
             var wood = GetOrCreateOpaqueColorMaterial(WoodMatPath, new Color(0.55f, 0.36f, 0.22f));
             var stone = GetOrCreateOpaqueColorMaterial(StoneMatPath, new Color(0.55f, 0.55f, 0.58f));
 
+            var workbenchPrefab = CreateWorkbenchPrefab(WorkbenchPrefabPath, wood);
             var wallPrefab    = CreateBoxBuildable(WallPrefabPath,    "Wall",    new Vector3(2f, 3f, 0.2f),   200, wood, addNavObstacle: true);
             var floorPrefab   = CreateBoxBuildable(FloorPrefabPath,   "Floor",   new Vector3(2f, 0.2f, 2f),   180, wood, addNavObstacle: false);
             var pillarPrefab  = CreateBoxBuildable(PillarPrefabPath,  "Pillar",  new Vector3(0.4f, 3f, 0.4f), 250, stone, addNavObstacle: true);
@@ -109,6 +114,11 @@ namespace Steading.EditorTools
             var floorCost   = new[] { new ResourceCost { kind = ResourceKind.Wood,  amount = 5 } };
             var pillarCost  = new[] { new ResourceCost { kind = ResourceKind.Stone, amount = 6 } };
             var doorwayCost = new[] { new ResourceCost { kind = ResourceKind.Wood,  amount = 6 } };
+            var workbenchCost = new[]
+            {
+                new ResourceCost { kind = ResourceKind.Wood,  amount = 4 },
+                new ResourceCost { kind = ResourceKind.Stone, amount = 2 },
+            };
 
             var entries = new[]
             {
@@ -132,6 +142,11 @@ namespace Steading.EditorTools
                     label = "Doorway", prefab = doorwayPrefab, halfExtents = new Vector3(1f, 1.5f, 0.1f),
                     snapTags = new[] { "WallEnd", "FloorEdge" }, cost = doorwayCost,
                 },
+                new BuildableEntry
+                {
+                    label = "Workbench", prefab = workbenchPrefab, halfExtents = new Vector3(0.6f, 0.5f, 0.4f),
+                    snapTags = System.Array.Empty<string>(), cost = workbenchCost,
+                },
             };
 
             UpdatePlayerPrefab(entries, ghostValid, ghostInvalid);
@@ -139,16 +154,23 @@ namespace Steading.EditorTools
             // Trees require an axe; rocks require an axe too (codex's tool table only
             // ships with WeaponKind.Axe wired into PlayerAttack's chop path right now,
             // so we use it for both to keep the gather loop testable).
-            var treePrefab = CreateResourceNodePrefab(TreePrefabPath, "ResourceTree", ResourceKind.Wood, yield: 5,
+            var treePrefab   = CreateResourceNodePrefab(TreePrefabPath,   "ResourceTree",      ResourceKind.Wood,   yield: 5,
                 visualScale: new Vector3(0.6f, 3.5f, 0.6f), color: new Color(0.32f, 0.18f, 0.08f), hp: 60, requiredWeapon: WeaponKind.Axe);
-            var rockPrefab = CreateResourceNodePrefab(RockPrefabPath, "ResourceRock", ResourceKind.Stone, yield: 4,
+            var rockPrefab   = CreateResourceNodePrefab(RockPrefabPath,   "ResourceRock",      ResourceKind.Stone,  yield: 4,
                 visualScale: new Vector3(0.9f, 0.7f, 0.9f), color: new Color(0.55f, 0.55f, 0.58f), hp: 80, requiredWeapon: WeaponKind.Axe);
+            var bronzeOre    = CreateResourceNodePrefab(BronzeOrePath,    "ResourceBronzeOre", ResourceKind.Bronze, yield: 3,
+                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.78f, 0.50f, 0.20f), hp: 110, requiredWeapon: WeaponKind.Axe);
+            var ironOre      = CreateResourceNodePrefab(IronOrePath,      "ResourceIronOre",   ResourceKind.Iron,   yield: 3,
+                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.62f, 0.55f, 0.50f), hp: 150, requiredWeapon: WeaponKind.Axe);
+            var steelOre     = CreateResourceNodePrefab(SteelOrePath,     "ResourceSteelOre",  ResourceKind.Steel,  yield: 2,
+                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.45f, 0.48f, 0.55f), hp: 200, requiredWeapon: WeaponKind.Axe);
 
             // Tree + Rock prefabs intentionally excluded — codex's ResourceNode is
             // a MonoBehaviour synced by nodeId, not a networked GameObject.
-            RegisterPrefabsInNetworkManager(new[] { wallPrefab, floorPrefab, pillarPrefab, doorwayPrefab });
+            // Workbench IS networked (CraftingStation = NetworkBehaviour).
+            RegisterPrefabsInNetworkManager(new[] { wallPrefab, floorPrefab, pillarPrefab, doorwayPrefab, workbenchPrefab });
 
-            ScatterResourcesInWorld(treePrefab, rockPrefab);
+            ScatterResourcesInWorld(treePrefab, rockPrefab, bronzeOre, ironOre, steelOre);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -197,6 +219,36 @@ namespace Steading.EditorTools
             root.AddComponent<Structure>();
             root.AddComponent<BuildableVisualEnhancer>();
             if (name == "Floor") root.AddComponent<WalkableSurface>();
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
+            Object.DestroyImmediate(root);
+            return prefab;
+        }
+
+        // Workbench: a chest-height box with a CraftingStation NetworkBehaviour
+        // attached. Networked so a) the station appears on every client, and
+        // b) RaidDirector can target it during HuntStation raids.
+        private static GameObject CreateWorkbenchPrefab(string path, Material mat)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (existing != null) AssetDatabase.DeleteAsset(path);
+
+            var root = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            root.name = "Workbench";
+            root.transform.localScale = new Vector3(1.2f, 1.0f, 0.8f);
+            root.GetComponent<MeshRenderer>().sharedMaterial = mat;
+
+            var obstacle = root.AddComponent<NavMeshObstacle>();
+            obstacle.shape = NavMeshObstacleShape.Box;
+            obstacle.size = Vector3.one;
+            obstacle.center = Vector3.zero;
+            obstacle.carving = true;
+            obstacle.carveOnlyStationary = true;
+
+            root.AddComponent<NetworkIdentity>();
+            AddHealth(root, 220);                // raid HP target
+            root.AddComponent<Structure>();
+            root.AddComponent<Steading.Building.CraftingStation>();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);
@@ -357,7 +409,8 @@ namespace Steading.EditorTools
 
         // Pre-place a few resource nodes in World_Test so the gather loop is testable
         // out of the box. Re-running M3 cleans up the previous spawns and re-scatters.
-        private static void ScatterResourcesInWorld(GameObject treePrefab, GameObject rockPrefab)
+        private static void ScatterResourcesInWorld(GameObject treePrefab, GameObject rockPrefab,
+            GameObject bronzeOre, GameObject ironOre, GameObject steelOre)
         {
             var path = "Assets/_Project/Scenes/World_Test.unity";
             if (!System.IO.File.Exists(path)) return;
@@ -369,7 +422,10 @@ namespace Steading.EditorTools
 
             var root = new GameObject("ResourceNodes");
 
-            // 8 trees in an outer ring, 5 rocks in an inner cluster
+            // Tighter ring of trees + rocks near spawn so a fresh player has
+            // immediate access to wood/stone without trekking. Phase C's
+            // TerrainBuilder scatters Synty-prefab decoration trees and rocks
+            // across the larger world.
             for (int i = 0; i < 8; i++)
             {
                 var angle = i / 8f * Mathf.PI * 2f;
@@ -379,7 +435,6 @@ namespace Steading.EditorTools
                 inst.transform.position = pos;
                 inst.name = $"Tree_{i}";
             }
-
             for (int i = 0; i < 5; i++)
             {
                 var angle = i / 5f * Mathf.PI * 2f + 0.3f;
@@ -390,8 +445,29 @@ namespace Steading.EditorTools
                 inst.name = $"Rock_{i}";
             }
 
+            // Tier-gated ore deposits placed progressively further from spawn.
+            // Player must explore to find them. Bronze ~30m, Iron ~55m, Steel
+            // ~85m. Scatter angles offset so they don't pile up.
+            ScatterOres(root, bronzeOre, count: 3, ringRadius: 30f, angleOffset: 0.6f, label: "BronzeOre");
+            ScatterOres(root, ironOre,   count: 3, ringRadius: 55f, angleOffset: 1.1f, label: "IronOre");
+            ScatterOres(root, steelOre,  count: 2, ringRadius: 85f, angleOffset: 1.7f, label: "SteelOre");
+
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
+        }
+
+        private static void ScatterOres(GameObject parent, GameObject prefab, int count, float ringRadius, float angleOffset, string label)
+        {
+            if (prefab == null) return;
+            for (int i = 0; i < count; i++)
+            {
+                var angle = i / (float)count * Mathf.PI * 2f + angleOffset;
+                var pos = new Vector3(Mathf.Cos(angle) * ringRadius, prefab.transform.localScale.y * 0.5f, Mathf.Sin(angle) * ringRadius);
+                var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+                inst.transform.SetParent(parent.transform);
+                inst.transform.position = pos;
+                inst.name = $"{label}_{i}";
+            }
         }
 
         private static void RegisterPrefabsInNetworkManager(GameObject[] prefabs)

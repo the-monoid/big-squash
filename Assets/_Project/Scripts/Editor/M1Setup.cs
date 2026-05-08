@@ -134,6 +134,10 @@ namespace Steading.EditorTools
             root.AddComponent<PlayerAppearance>();
             root.AddComponent<PlayerInventory>();
             root.AddComponent<PlayerController>();
+            // Local-player crafting overlay — finds nearby Workbench and lets
+            // the player craft tiered weapons. NetworkBehaviour's isLocalPlayer
+            // flag gates rendering so remote players' instances are silent.
+            root.AddComponent<Steading.UI.CraftingHud>();
 
             // Hand-rolled third-person camera. PlayerCameraRig drives Camera.main
             // directly on the local player — no Cinemachine, no prefab, no Brain.
