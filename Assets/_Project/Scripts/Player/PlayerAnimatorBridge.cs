@@ -56,10 +56,40 @@ namespace Steading.Player
         // ------------------------------------------------- API surface preserved from
         // ------------------------------------------------- the old PlayerVisualAnimator
         // so PlayerAttack RPCs keep working without edits.
-        public Transform RightHandSocket => FindBoneRecursive(_animator?.transform, "RightHand")
-                                            ?? FindBoneRecursive(_animator?.transform, "mixamorig:RightHand");
-        public Transform LeftHandSocket  => FindBoneRecursive(_animator?.transform, "LeftHand")
-                                            ?? FindBoneRecursive(_animator?.transform, "mixamorig:LeftHand");
+        // C# `?.` doesn't trigger Unity's overloaded `==` (fake-null), so we
+        // route through SafeBoneSearch which checks both. Falls back to the
+        // Animator's avatar bone lookup when the literal name isn't found,
+        // and finally to a hand transform on the player itself.
+        public Transform RightHandSocket => ResolveHand(HumanBodyBones.RightHand, "RightHand", "mixamorig:RightHand");
+        public Transform LeftHandSocket  => ResolveHand(HumanBodyBones.LeftHand,  "LeftHand",  "mixamorig:LeftHand");
+
+        private Transform ResolveHand(HumanBodyBones bone, params string[] literalNames)
+        {
+            EnsureAnimator();
+            if (_animator == null) return transform;          // never null — caller can safely .position
+            if (_animator.isHuman)
+            {
+                var t = _animator.GetBoneTransform(bone);
+                if (t != null) return t;
+            }
+            for (int i = 0; i < literalNames.Length; i++)
+            {
+                var t = FindBoneRecursive(_animator.transform, literalNames[i]);
+                if (t != null) return t;
+            }
+            return _animator.transform;
+        }
+
+        private void EnsureAnimator()
+        {
+            // Unity-aware null check: `_animator == null` triggers the engine's
+            // overloaded == (catches destroyed components); `?:` does not.
+            if (_animator == null)
+            {
+                _animator = GetComponent<Animator>();
+                if (_animator == null) _animator = GetComponentInChildren<Animator>();
+            }
+        }
         public float CurrentSpeed => _smoothedSpeed;
 
         public void EnsureRig() { /* no-op: rig comes from imported FBX */ }
