@@ -6,15 +6,18 @@ using Unity.Cinemachine;
 
 namespace Steading.EditorTools
 {
-    // Builds the Cinemachine third-person camera prefab. Idempotent.
+    // Builds a single-component CinemachineCamera prefab. Idempotent.
     //
-    // Output prefab at Assets/_Project/Prefabs/PlayerCameraRig.prefab containing:
-    //   - GameObject "PlayerCameraRig"
-    //     - "Brain" GameObject with CinemachineBrain (lives on the actual main camera)
-    //     - "ThirdPersonCam" with CinemachineCamera + CinemachineThirdPersonFollow
+    // Output: Assets/_Project/Prefabs/PlayerCameraRig.prefab
+    //   GameObject "PlayerThirdPersonCam"
+    //     - CinemachineCamera
+    //     - CinemachineThirdPersonFollow
+    //     - CinemachineRotationComposer
     //
-    // PlayerCameraRig.cs (runtime) instantiates this on the local player's spawn
-    // and binds Follow/LookAt to the imported FBX's spine bone.
+    // Critically: the prefab does NOT contain its own Camera + CinemachineBrain.
+    // Instead, the runtime PlayerCameraRig.cs adds a Brain to the scene's
+    // existing Main Camera (set up by M1Setup). One Camera, one Brain — no
+    // tagging fights, no "POV inside the character" surprises.
     public static class PlayerCameraRigBuilder
     {
         private const string PrefabPath = "Assets/_Project/Prefabs/PlayerCameraRig.prefab";
@@ -33,32 +36,12 @@ namespace Steading.EditorTools
             var existing = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
             if (existing != null) AssetDatabase.DeleteAsset(PrefabPath);
 
-            var root = new GameObject("PlayerCameraRig");
-
-            // Cinemachine Brain — receives camera updates and feeds them to the
-            // active Camera. Brain expects to live on the actual rendering camera,
-            // so we add it to a child labeled MainCamera.
-            var brainGo = new GameObject("Main Camera") { tag = "MainCamera" };
-            brainGo.transform.SetParent(root.transform, worldPositionStays: false);
-            var cam = brainGo.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.Skybox;
-            cam.fieldOfView = 52f;
-            cam.nearClipPlane = 0.1f;
-            cam.farClipPlane = 250f;
-            brainGo.AddComponent<AudioListener>();
-            brainGo.AddComponent<CinemachineBrain>();
-
-            // The CinemachineCamera object — driven by Follow/LookAt.
-            var camGo = new GameObject("ThirdPersonCam");
-            camGo.transform.SetParent(root.transform, worldPositionStays: false);
+            var camGo = new GameObject("PlayerThirdPersonCam");
 
             var cmCam = camGo.AddComponent<CinemachineCamera>();
             cmCam.Lens.FieldOfView = 52f;
             cmCam.Priority.Value = 10;
 
-            // Third-person over-the-shoulder body. Cinemachine 3.1 API: top-level
-            // fields for shoulder/distance/side; obstacle avoidance lives in the
-            // nested ObstacleSettings struct (CollisionFilter, IgnoreTag, etc.).
             var follow = camGo.AddComponent<CinemachineThirdPersonFollow>();
             follow.ShoulderOffset    = new Vector3(0.55f, 0.45f, 0f);
             follow.VerticalArmLength = 0.4f;
@@ -75,20 +58,19 @@ namespace Steading.EditorTools
             obstacles.DampingFromCollision = 0.30f;
             follow.AvoidObstacles = obstacles;
 
-            // RotationComposer keeps the camera aimed at the LookAt target. The
-            // 3.1.2 API moves composition fields under a nested struct that's
-            // version-finicky to set in code, so we just attach with defaults
-            // here and let the user tune in the Inspector if needed.
+            // Default RotationComposer keeps the camera aimed at LookAt; field
+            // names vary across 3.1.x patches, so we just attach with defaults
+            // and let the user tune in the Inspector if desired.
             camGo.AddComponent<CinemachineRotationComposer>();
 
-            // Save as prefab.
             EnsureFolder("Assets/_Project/Prefabs");
-            var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
-            Object.DestroyImmediate(root);
+            var prefab = PrefabUtility.SaveAsPrefabAsset(camGo, PrefabPath);
+            Object.DestroyImmediate(camGo);
 
             EditorUtility.DisplayDialog(
                 "Player Camera Rig",
-                "Built PlayerCameraRig.prefab. Re-run M1Setup to wire it into Player.prefab.",
+                "Built PlayerCameraRig.prefab (CinemachineCamera only — no extra Camera/Brain). " +
+                "Re-run M1Setup to wire it into Player.prefab.",
                 "OK");
 #endif
         }

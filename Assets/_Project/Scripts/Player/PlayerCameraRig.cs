@@ -6,17 +6,17 @@ using Unity.Cinemachine;
 
 namespace Steading.Player
 {
-    // Local-player only. Spawns a Cinemachine third-person camera rig that
-    // follows the player's spine bone instead of reparenting Camera.main onto
-    // a fake CameraPivot transform. Replaces the procedural camera-reparenting
-    // path in PlayerController.OnStartLocalPlayer.
+    // Local-player only. Spawns a CinemachineCamera (built by
+    // SteadingPlayerCameraRigBuilder) and ensures the scene's Main Camera has a
+    // CinemachineBrain to drive it.
     //
-    // The actual CinemachineCamera prefab is built by
-    // SteadingPlayerCameraSetup (editor menu). At runtime this component
-    // instantiates that prefab and binds Follow/LookAt to the right bones.
+    // Why this shape: the rig prefab is intentionally JUST a CinemachineCamera —
+    // it does not contain its own Camera or Brain. M1Setup created the scene's
+    // Main Camera; we attach a Brain to that one. Result: exactly ONE Camera
+    // in the scene, no tagging fights, no "POV inside the character" surprise.
     public class PlayerCameraRig : NetworkBehaviour
     {
-        [Tooltip("Prefab containing the CinemachineCamera + ThirdPersonFollow. Built by Steading > Animator: Build Player Camera Rig menu.")]
+        [Tooltip("Prefab containing the CinemachineCamera + ThirdPersonFollow. Built by Steading > Animator: Build Player Camera Rig.")]
         [SerializeField] private GameObject cameraRigPrefab;
 
         [Tooltip("Bone name to use for camera target. Defaults to mixamorig:Spine2 for the X Bot rig.")]
@@ -24,6 +24,9 @@ namespace Steading.Player
 
         [Tooltip("If non-null, falls back to this transform when targetBoneName isn't found.")]
         [SerializeField] private Transform fallbackTarget;
+
+        [Tooltip("Vertical offset added to the bone target so the camera lines up with the player's head (the Mixamo spine is below the head by ~0.4m).")]
+        [SerializeField] private float targetUpOffset = 0.35f;
 
         private GameObject _spawnedRig;
 
@@ -37,13 +40,38 @@ namespace Steading.Player
                 return;
             }
 
-            _spawnedRig = Instantiate(cameraRigPrefab);
-            _spawnedRig.name = "Player Camera Rig (Local)";
+            EnsureBrainOnSceneCamera();
 
-            var target = FindBone(transform, targetBoneName) ?? fallbackTarget ?? transform;
+            _spawnedRig = Instantiate(cameraRigPrefab);
+            _spawnedRig.name = "PlayerThirdPersonCam (Local)";
+
+            // Build a child target transform offset above the spine bone so the
+            // camera aims at head height. Parented to the player so it follows
+            // automatically.
+            var bone = FindBone(transform, targetBoneName);
+            Transform target;
+            if (bone != null)
+            {
+                var anchor = new GameObject("CameraTarget").transform;
+                anchor.SetParent(bone, worldPositionStays: false);
+                anchor.localPosition = new Vector3(0f, targetUpOffset, 0f);
+                target = anchor;
+            }
+            else if (fallbackTarget != null)
+            {
+                target = fallbackTarget;
+            }
+            else
+            {
+                // No bones — make a child of root at chest height.
+                var anchor = new GameObject("CameraTarget").transform;
+                anchor.SetParent(transform, worldPositionStays: false);
+                anchor.localPosition = new Vector3(0f, 1.55f, 0f);
+                target = anchor;
+            }
+
             BindRig(_spawnedRig, target);
 
-            // Lock + hide the cursor for gameplay.
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
@@ -53,10 +81,19 @@ namespace Steading.Player
             if (_spawnedRig != null) Destroy(_spawnedRig);
         }
 
-        // ------------------------------------------------- Cinemachine binding
-        // Wrapped in #if so the project compiles even before the user opens Unity
-        // and Cinemachine resolves. Once the package is in, STEADING_CINEMACHINE
-        // is defined via asmdef versionDefines.
+        // ------------------------------------------------- Cinemachine plumbing
+
+        private static void EnsureBrainOnSceneCamera()
+        {
+#if STEADING_CINEMACHINE
+            var cam = Camera.main;
+            if (cam == null) return;
+            if (cam.GetComponent<CinemachineBrain>() == null)
+            {
+                cam.gameObject.AddComponent<CinemachineBrain>();
+            }
+#endif
+        }
 
         private static void BindRig(GameObject rig, Transform target)
         {
