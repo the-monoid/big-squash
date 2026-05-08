@@ -39,7 +39,7 @@ namespace Steading.Combat
         [SerializeField] private float parryWindow = 0.25f;
         [SerializeField] private float parryStaggerSeconds = 1.4f;
 
-        [Header("Shield Bash")]
+        [Header("Shield Bash (legacy F-key fallback)")]
         [SerializeField] private int shieldBashDamage = 12;
         [SerializeField] private float shieldBashRange = 1.75f;
         [SerializeField] private float shieldBashRadius = 0.95f;
@@ -48,6 +48,26 @@ namespace Steading.Combat
         [SerializeField] private float shieldBashStaggerSeconds = 1.20f;
         [SerializeField] private float shieldBashKnockback = 13f;
         [SerializeField] private float rightMouseBlockHoldDelay = 0.24f;
+
+        [Header("Shield Rush (New-World style — hold RMB + tap LMB)")]
+        [SerializeField] private int   shieldRushDamage = 18;
+        [SerializeField] private float shieldRushDistance = 4.0f;
+        [SerializeField] private float shieldRushDuration = 0.30f;
+        [SerializeField] private float shieldRushRadius = 0.55f;
+        [SerializeField] private float shieldRushCooldown = 6.0f;
+        [SerializeField] private float shieldRushKnockdownSeconds = 1.8f;
+        [SerializeField] private float shieldRushPushDistance = 1.4f;
+
+        [Header("Charged Power Bash (crouch + hold LMB)")]
+        [SerializeField] private int   powerBashMinDamage = 12;
+        [SerializeField] private int   powerBashMaxDamage = 24;
+        [SerializeField] private float powerBashChargeMin = 0.5f;
+        [SerializeField] private float powerBashChargeMax = 1.5f;
+        [SerializeField] private float powerBashCooldown = 4.0f;
+        [SerializeField] private float powerBashRange = 1.9f;
+        [SerializeField] private float powerBashRadius = 1.05f;
+        [SerializeField] private float powerBashStagger = 1.10f;
+        [SerializeField] private float powerBashKnockbackMax = 16f;
 
         [Header("Skills")]
         [SerializeField] private float skillCooldown = 2.8f;
@@ -76,12 +96,17 @@ namespace Steading.Combat
 
         private float _nextAttackTime;
         private float _nextBashTime;
+        private float _nextRushTime;
+        private float _nextPowerBashTime;
         private float _nextSkillTime;
         private float _rightMouseBlockAllowedAt;
         private float _lastBlockStartedServer = -999f;
         private int _comboStep;
         private bool _serverAttackPending;
         private bool _localBlockingSent;
+        private bool _localChargingPowerBash;
+        private float _powerBashChargeStart;
+        private PlayerInput _input;
         private BuildController _buildController;
         private PlayerAnimatorBridge _visualAnimator;
         private Transform _swordRoot;
@@ -97,6 +122,7 @@ namespace Steading.Combat
         {
             _buildController = GetComponent<BuildController>();
             _visualAnimator = GetComponent<PlayerAnimatorBridge>();
+            _input = GetComponent<PlayerInput>();
         }
 
         public override void OnStartClient()
@@ -132,7 +158,9 @@ namespace Steading.Combat
                 return;
             }
 
-            if ((rightMouseDown || Input.GetKeyDown(KeyCode.F)) && Time.time >= _nextBashTime)
+            // Legacy F-key fallback for stationary shield bash. Kept so testing
+            // is unaffected. The new dash-based behavior lives in CmdStartShieldRush.
+            if (Input.GetKeyDown(KeyCode.F) && Time.time >= _nextBashTime)
             {
                 SendBlocking(false);
                 _nextBashTime = Time.time + shieldBashCooldown;
@@ -141,7 +169,47 @@ namespace Steading.Combat
                 return;
             }
 
+            // RMB blocking state (with hold-delay so RMB-tap isn't a block)
             SendBlocking(Input.GetMouseButton(1) && Time.time >= _rightMouseBlockAllowedAt);
+
+            // ---- Shield Rush: hold RMB (blocking) + tap LMB ----
+            if (_localBlockingSent && Input.GetMouseButtonDown(0) && Time.time >= _nextRushTime)
+            {
+                SendBlocking(false);
+                _nextRushTime = Time.time + shieldRushCooldown;
+                _nextAttackTime = Mathf.Max(_nextAttackTime, Time.time + shieldRushDuration + 0.10f);
+                CmdStartShieldRush(cam.transform.forward);
+                return;
+            }
+
+            // ---- Charged Power Bash: crouch + hold LMB (charge), release to fire ----
+            var crouching = _input != null && _input.CrouchHeld;
+            if (crouching)
+            {
+                if (Input.GetMouseButtonDown(0) && Time.time >= _nextPowerBashTime && !_localBlockingSent)
+                {
+                    _localChargingPowerBash = true;
+                    _powerBashChargeStart = Time.time;
+                }
+                else if (Input.GetMouseButtonUp(0) && _localChargingPowerBash)
+                {
+                    var charged = Time.time - _powerBashChargeStart;
+                    var pct = Mathf.Clamp01((charged - powerBashChargeMin) / Mathf.Max(0.001f, powerBashChargeMax - powerBashChargeMin));
+                    _localChargingPowerBash = false;
+                    if (charged >= powerBashChargeMin)
+                    {
+                        _nextPowerBashTime = Time.time + powerBashCooldown;
+                        _nextAttackTime = Mathf.Max(_nextAttackTime, Time.time + 0.30f);
+                        CmdReleasePowerBash(cam.transform.forward, pct);
+                    }
+                }
+                return;     // crouch eats LMB; don't fall into normal swing logic
+            }
+            else if (_localChargingPowerBash)
+            {
+                // Released crouch mid-charge — abort
+                _localChargingPowerBash = false;
+            }
 
             if (Input.GetKeyDown(KeyCode.Q) && Time.time >= _nextSkillTime && !_localBlockingSent)
             {
@@ -226,6 +294,146 @@ namespace Steading.Combat
             _blocking = false;
             StartCoroutine(ServerShieldBashAfterWindup(dir.normalized));
             RpcPlayShieldBash();
+        }
+
+        // Shield Rush: forward dash, knockdown first enemy in path
+        [Command]
+        private void CmdStartShieldRush(Vector3 dir)
+        {
+            if (_serverAttackPending) return;
+            if (dir.sqrMagnitude < 0.001f) return;
+            var flat = new Vector3(dir.x, 0f, dir.z).normalized;
+
+            _blocking = false;
+            StartCoroutine(ServerShieldRush(flat));
+            RpcPlayShieldRush(flat);
+        }
+
+        [Server]
+        private IEnumerator ServerShieldRush(Vector3 dir)
+        {
+            _serverAttackPending = true;
+
+            // Single sphere-cast forward — first enemy gets knocked down + damage.
+            // Server is authoritative for the impact; client moves CharacterController
+            // forward in the Rpc handler so the dash feels responsive.
+            var origin = transform.position + Vector3.up * 0.9f;
+            if (Physics.SphereCast(origin, shieldRushRadius, dir, out var hit, shieldRushDistance, hitLayers, QueryTriggerInteraction.Ignore))
+            {
+                var ni = hit.collider.GetComponentInParent<NetworkIdentity>();
+                if (ni == null || ni != netIdentity)
+                {
+                    var th = hit.collider.GetComponentInParent<Health>();
+                    if (th != null && th.gameObject != gameObject)
+                    {
+                        th.TakeDamage(new DamageInfo
+                        {
+                            amount = shieldRushDamage,
+                            hitPoint = hit.point,
+                            hitDirection = dir,
+                            sourceNetId = netId,
+                            weaponKind = WeaponKind.Sword,    // shield, but enum doesn't have it; sword is closest
+                            canBeBlocked = false,
+                        });
+                        var enemy = hit.collider.GetComponentInParent<EnemyController>();
+                        if (enemy != null)
+                        {
+                            enemy.KnockdownServer(shieldRushKnockdownSeconds);
+                            enemy.KnockbackServer(dir, shieldRushPushDistance * 6f);
+                        }
+                    }
+                }
+            }
+
+            yield return new WaitForSeconds(shieldRushDuration);
+            _serverAttackPending = false;
+        }
+
+        [ClientRpc]
+        private void RpcPlayShieldRush(Vector3 dir)
+        {
+            EnsureWeaponModels();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
+            if (_visualAnimator != null) _visualAnimator.PlayShieldRushPose();
+
+            // Owner-side dash motion. The CharacterController moves forward over the
+            // dash duration; NetworkTransform replicates to other clients.
+            if (isLocalPlayer) StartCoroutine(LocalShieldRushDash(dir));
+        }
+
+        private IEnumerator LocalShieldRushDash(Vector3 dir)
+        {
+            var cc = GetComponent<CharacterController>();
+            if (cc == null) yield break;
+            var elapsed = 0f;
+            var speed = shieldRushDistance / Mathf.Max(0.05f, shieldRushDuration);
+            while (elapsed < shieldRushDuration)
+            {
+                var dt = Time.deltaTime;
+                elapsed += dt;
+                cc.Move(dir * speed * dt);
+                yield return null;
+            }
+        }
+
+        // Charged Power Bash: crouch + held LMB charges; release fires scaled hit
+        [Command]
+        private void CmdReleasePowerBash(Vector3 dir, float chargePct)
+        {
+            if (_serverAttackPending) return;
+            if (dir.sqrMagnitude < 0.001f) return;
+            chargePct = Mathf.Clamp01(chargePct);
+
+            StartCoroutine(ServerPowerBash(dir.normalized, chargePct));
+            RpcPlayPowerBash(chargePct);
+        }
+
+        [Server]
+        private IEnumerator ServerPowerBash(Vector3 dir, float chargePct)
+        {
+            _serverAttackPending = true;
+            yield return new WaitForSeconds(0.10f);
+
+            var damage = Mathf.RoundToInt(Mathf.Lerp(powerBashMinDamage, powerBashMaxDamage, chargePct));
+            var knockback = Mathf.Lerp(6f, powerBashKnockbackMax, chargePct);
+
+            var center = transform.position + Vector3.up * 1.05f + dir * (powerBashRange * 0.55f);
+            var hits = Physics.OverlapSphere(center, powerBashRadius, hitLayers, QueryTriggerInteraction.Ignore);
+            foreach (var col in hits)
+            {
+                var ni = col.GetComponentInParent<NetworkIdentity>();
+                if (ni != null && ni == netIdentity) continue;
+                var th = col.GetComponentInParent<Health>();
+                if (th == null || th.gameObject == gameObject) continue;
+
+                th.TakeDamage(new DamageInfo
+                {
+                    amount = damage,
+                    hitPoint = col.bounds.center,
+                    hitDirection = dir,
+                    sourceNetId = netId,
+                    weaponKind = WeaponKind.Sword,
+                    canBeBlocked = false,
+                });
+                var enemy = col.GetComponentInParent<EnemyController>();
+                if (enemy != null)
+                {
+                    enemy.StaggerServer(powerBashStagger);
+                    enemy.KnockbackServer(dir, knockback);
+                }
+                break;  // one target per bash
+            }
+
+            yield return new WaitForSeconds(0.30f);
+            _serverAttackPending = false;
+        }
+
+        [ClientRpc]
+        private void RpcPlayPowerBash(float chargePct)
+        {
+            EnsureWeaponModels();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
+            if (_visualAnimator != null) _visualAnimator.PlayPowerBashPose();
         }
 
         [Command]

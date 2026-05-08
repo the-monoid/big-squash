@@ -193,6 +193,42 @@ namespace Steading.AI
             RpcPlayStagger(seconds);
         }
 
+        // Heavy CC: enemy is knocked prone for `seconds`. Stops navigation,
+        // tilts the body 75° around X to read as "knocked down". Used by
+        // PlayerAttack's Shield Rush — represents the New-World shield charge
+        // takedown.
+        [Server]
+        public void KnockdownServer(float seconds)
+        {
+            if (_health.IsDead) return;
+            _staggerUntil = Mathf.Max(_staggerUntil, Time.time + seconds);
+            _attackPending = false;
+            if (_agent != null && _agent.hasPath) _agent.ResetPath();
+            RpcPlayKnockdown(seconds);
+        }
+
+        [ClientRpc]
+        private void RpcPlayKnockdown(float seconds)
+        {
+            if (_visual == null) _visual = GetComponent<EnemyVisualAnimator>();
+            if (_visual != null) _visual.PlayStagger(seconds);   // reuse stagger pose for now; swap for prone clip when authored
+            StartCoroutine(KnockdownTilt(seconds));
+        }
+
+        private System.Collections.IEnumerator KnockdownTilt(float seconds)
+        {
+            var startRot = transform.rotation;
+            var proneRot = startRot * Quaternion.Euler(75f, 0f, 0f);
+            var lerpDur = 0.20f;
+            var t = 0f;
+            while (t < lerpDur) { t += Time.deltaTime; transform.rotation = Quaternion.Slerp(startRot, proneRot, Mathf.Clamp01(t / lerpDur)); yield return null; }
+            transform.rotation = proneRot;
+            yield return new WaitForSeconds(Mathf.Max(0f, seconds - lerpDur * 2f));
+            t = 0f;
+            while (t < lerpDur) { t += Time.deltaTime; transform.rotation = Quaternion.Slerp(proneRot, startRot, Mathf.Clamp01(t / lerpDur)); yield return null; }
+            transform.rotation = startRot;
+        }
+
         [Server]
         public void KnockbackServer(Vector3 direction, float impulse)
         {
