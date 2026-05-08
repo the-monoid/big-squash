@@ -222,6 +222,10 @@ namespace Steading.Combat
             if (!Input.GetMouseButtonDown(0)) return;
             if (_localBlockingSent) return;
             if (Time.time < _nextAttackTime) return;
+            // Drop queued clicks while the previous swing is mid-flight on the
+            // server. Without this the click registers on cooldown end and the
+            // player feels "click-spammed" attacks. We don't queue inputs.
+            if (_serverAttackPending) return;
 
             var heavy = Input.GetKey(KeyCode.LeftControl) || Input.GetMouseButton(2);
             _nextAttackTime = Time.time + GetCooldown(_equippedWeapon, heavy);

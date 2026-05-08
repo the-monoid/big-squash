@@ -154,12 +154,13 @@ namespace Steading.EditorTools
 
                 var locoToJump = locomotionState.AddTransition(jumpState);
                 locoToJump.AddCondition(AnimatorConditionMode.IfNot, 0f, "Grounded");
-                locoToJump.duration = 0.08f;
+                locoToJump.duration = 0.18f;            // smoother takeoff
                 locoToJump.hasExitTime = false;
+                locoToJump.canTransitionToSelf = false;
 
                 var jumpToLoco = jumpState.AddTransition(locomotionState);
                 jumpToLoco.AddCondition(AnimatorConditionMode.If, 0f, "Grounded");
-                jumpToLoco.duration = 0.12f;
+                jumpToLoco.duration = 0.22f;            // ease into landing recovery
                 jumpToLoco.hasExitTime = false;
             }
         }
@@ -196,17 +197,21 @@ namespace Steading.EditorTools
 
                 var enter = idle.AddTransition(blockState);
                 enter.AddCondition(AnimatorConditionMode.If, 0f, "Block");
-                enter.duration = 0.10f;
+                enter.duration = 0.18f;
                 enter.hasExitTime = false;
 
                 var exit = blockState.AddTransition(idle);
                 exit.AddCondition(AnimatorConditionMode.IfNot, 0f, "Block");
-                exit.duration = 0.10f;
+                exit.duration = 0.20f;
                 exit.hasExitTime = false;
             }
         }
 
         // Generic helper: triggered one-shot state that auto-returns to Empty on exit.
+        // Transition durations bumped from 0.06/0.18 -> 0.20/0.25 for smoother
+        // ease-in/ease-out. canTransitionToSelf=false so spamming the trigger
+        // can't restart the same swing on its first frame (input feels "queued"
+        // when it actually drops the duplicate).
         private static void AddTriggeredState(AnimatorController controller, AnimatorStateMachine sm,
             AnimatorState idle, System.Collections.Generic.Dictionary<string, AnimationClip> clips,
             string clipKey, string triggerName, bool lookAtTrigger)
@@ -220,13 +225,16 @@ namespace Steading.EditorTools
 
             var enter = idle.AddTransition(state);
             enter.AddCondition(AnimatorConditionMode.If, 0f, triggerName);
-            enter.duration = 0.06f;
+            enter.duration = 0.20f;
             enter.hasExitTime = false;
+            enter.canTransitionToSelf = false;
+            enter.interruptionSource = TransitionInterruptionSource.Source;
 
             var exit = state.AddTransition(idle);
-            exit.duration = 0.18f;
+            exit.duration = 0.25f;
             exit.hasExitTime = true;
-            exit.exitTime = 0.85f;          // start blending out near the end of the clip
+            exit.exitTime = 0.85f;
+            exit.canTransitionToSelf = false;
         }
 
         // ----------------------------------------------- Layer 2: Reaction (override)
