@@ -13,10 +13,17 @@ namespace Steading.UI
 
         private void OnGUI()
         {
+            // Headless server has no GUI skin — short-circuit so EnsureStyles
+            // doesn't NRE on `new GUIStyle(GUI.skin.label)`.
+            if (Mirror.NetworkServer.active && !Mirror.NetworkClient.active) return;
+
             EnsureStyles();
 
             var rd = RaidDirector.Instance;
             if (rd == null) return;
+            // Skip until the server-authoritative schedule has reached us
+            // — otherwise a freshly-connected client briefly sees "00:00".
+            if (!rd.Initialized) return;
 
             float w = 280f;
             float h = 64f;

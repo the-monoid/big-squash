@@ -46,8 +46,12 @@ namespace Steading.AI
         protected Transform _target;
         // Override aggro target — set by RaidDirector when this Draugr is
         // part of a war-band tasked with hunting a specific player or station.
+        // Cleared on Awake / OnStopServer so a despawn/respawn cycle (or an
+        // organic spawn from EnemySpawner reusing a pooled prefab instance)
+        // doesn't carry over a previous raid's target.
         protected Transform _overrideTarget;
         public void SetOverrideTarget(Transform t) { _overrideTarget = t; }
+        public Transform OverrideTarget => _overrideTarget;
         protected Vector3 _homePosition;
         protected float _nextAttackTime;
         protected float _nextRetargetTime;
@@ -64,6 +68,7 @@ namespace Steading.AI
             if (GetComponent<EnemyActor>() == null) gameObject.AddComponent<EnemyActor>();
             _agent = GetComponent<NavMeshAgent>();
             _health = GetComponent<Health>();
+            _overrideTarget = null;     // never carry across instance reuse
             ResolveVisual();
         }
 
@@ -102,6 +107,7 @@ namespace Steading.AI
             base.OnStopServer();
             if (_health != null) _health.Died -= OnDiedServer;
             if (_health != null) _health.Damaged -= OnDamagedServer;
+            _overrideTarget = null;     // raid director may have set this
         }
 
         [ServerCallback]
@@ -231,7 +237,7 @@ namespace Steading.AI
         [ClientRpc]
         private void RpcPlayKnockdown(float seconds)
         {
-            if (_visual == null) _visual = GetComponent<EnemyVisualAnimator>();
+            if (_visual == null) ResolveVisual();
             if (_visual != null) _visual.PlayStagger(seconds);   // reuse stagger pose for now; swap for prone clip when authored
             StartCoroutine(KnockdownTilt(seconds));
         }
@@ -280,14 +286,14 @@ namespace Steading.AI
         [ClientRpc]
         private void RpcPlayAttack(int variant)
         {
-            if (_visual == null) _visual = GetComponent<EnemyVisualAnimator>();
+            if (_visual == null) ResolveVisual();
             if (_visual != null) _visual.PlayAttack(variant);
         }
 
         [ClientRpc]
         private void RpcPlayStagger(float seconds)
         {
-            if (_visual == null) _visual = GetComponent<EnemyVisualAnimator>();
+            if (_visual == null) ResolveVisual();
             if (_visual != null) _visual.PlayStagger(seconds);
         }
 

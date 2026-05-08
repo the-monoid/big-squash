@@ -1,4 +1,3 @@
-using Mirror;
 using Steading.Combat;
 using UnityEngine;
 
@@ -8,11 +7,12 @@ namespace Steading.AI
     // joint-blend rig with a real Animator playing imported Mixamo Mutant
     // animations from Assets/_Project/Art/Models/Characters/Enemies/.
     //
-    // Lives on the same GameObject as EnemyController. Auto-finds the Animator
-    // either on root or in a child (the imported Enemy_Draugr.fbx is typically
-    // a child VisualRig). Implements IEnemyVisuals so EnemyController works
-    // without caring which visual layer is attached.
-    public class EnemyAnimatorBridge : NetworkBehaviour, IEnemyVisuals
+    // Pure MonoBehaviour (NOT NetworkBehaviour) — animation triggers arrive
+    // via EnemyController's [ClientRpc] handlers; the bridge has no SyncVars
+    // or networked logic of its own. Avoids running Animator.SetFloat every
+    // server frame on headless dedicated server builds where Animators are
+    // stripped.
+    public class EnemyAnimatorBridge : MonoBehaviour, IEnemyVisuals
     {
         private static readonly int HashSpeed       = Animator.StringToHash("Speed");
         private static readonly int HashAttack      = Animator.StringToHash("Attack");

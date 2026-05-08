@@ -22,8 +22,9 @@ namespace Steading.AI
     //     Raid ends when the station is destroyed OR all Draugr are dead.
     // Falls back to HuntPlayer if no stations exist.
     //
-    // Singleton — exactly one in the scene. M1Setup adds it to Bootstrap so
-    // it persists across the scene transition into World_Test.
+    // Singleton — exactly one in the scene. M2Setup adds it to World_Test
+    // (alongside the Draugr spawner / NavMeshSurface). The Singleton lives
+    // for the lifetime of that scene; no DontDestroyOnLoad needed.
     public class RaidDirector : NetworkBehaviour
     {
         public static RaidDirector Instance { get; private set; }
@@ -44,11 +45,16 @@ namespace Steading.AI
         [SyncVar] private RaidKind _activeRaid;
         [SyncVar] private string _activeTargetName;
         [SyncVar] private int _activeRemaining;
+        // Set true in OnStartServer once the schedule is initialized. RaidHud
+        // checks this before rendering so a freshly-connected client doesn't
+        // see a "00:00" flicker before the SyncVar payload arrives.
+        [SyncVar] private bool _initialized;
 
         public float NextRaidAt => _nextRaidAt;
         public RaidKind ActiveRaid => _activeRaid;
         public string ActiveTargetName => _activeTargetName;
         public int ActiveRemaining => _activeRemaining;
+        public bool Initialized => _initialized;
 
         private readonly List<EnemyController> _activeMobs = new List<EnemyController>();
         private float _activeRaidStartedAt;
@@ -72,6 +78,7 @@ namespace Steading.AI
             base.OnStartServer();
             _nextRaidAt = (float)NetworkTime.time + firstRaidDelay;
             _activeRaid = RaidKind.None;
+            _initialized = true;
         }
 
         [ServerCallback]
@@ -186,7 +193,13 @@ namespace Steading.AI
         [Server]
         private void EndRaid()
         {
-            // Clean up any survivor mobs so we don't leak Draugr around the map.
+            // Clear override targets first so anything we don't destroy returns
+            // to organic aggro instead of marching toward a stale raid target.
+            for (int i = 0; i < _activeMobs.Count; i++)
+            {
+                if (_activeMobs[i] != null) _activeMobs[i].SetOverrideTarget(null);
+            }
+            // Then destroy survivors so we don't leak Draugr around the map.
             for (int i = _activeMobs.Count - 1; i >= 0; i--)
             {
                 if (_activeMobs[i] != null) NetworkServer.Destroy(_activeMobs[i].gameObject);

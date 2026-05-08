@@ -41,17 +41,17 @@ namespace Steading.EditorTools
 
             library.weapons.Add(MakeWeapon("BronzeSword",       WeaponKind.Sword, WeaponTier.Bronze,
                 lightDmg: 28, heavyDmg: 46, lightCD: 0.40f, heavyCD: 0.70f, range: 2.5f,
-                cost: Cost(ResourceKind.Wood, 3, ResourceKind.Bronze, 4),
+                cost: Cost((ResourceKind.Wood, 3), (ResourceKind.Bronze, 4)),
                 blade: new Color(0.85f, 0.55f, 0.20f), grip: new Color(0.36f, 0.22f, 0.10f)));
 
             library.weapons.Add(MakeWeapon("IronSword",         WeaponKind.Sword, WeaponTier.Iron,
                 lightDmg: 38, heavyDmg: 60, lightCD: 0.38f, heavyCD: 0.66f, range: 2.6f,
-                cost: Cost(ResourceKind.Wood, 5, ResourceKind.Iron, 6),
+                cost: Cost((ResourceKind.Wood, 5), (ResourceKind.Iron, 6)),
                 blade: new Color(0.78f, 0.80f, 0.84f), grip: new Color(0.20f, 0.16f, 0.12f)));
 
             library.weapons.Add(MakeWeapon("RusticSteelSword",  WeaponKind.Sword, WeaponTier.Steel,
                 lightDmg: 52, heavyDmg: 82, lightCD: 0.36f, heavyCD: 0.62f, range: 2.7f,
-                cost: Cost(ResourceKind.Wood, 8, ResourceKind.Iron, 4, ResourceKind.Steel, 6),
+                cost: Cost((ResourceKind.Wood, 8), (ResourceKind.Iron, 4), (ResourceKind.Steel, 6)),
                 // "Rustic steel" — slightly oxidized cold blue-grey blade, dark wrapped grip.
                 blade: new Color(0.62f, 0.66f, 0.72f), grip: new Color(0.14f, 0.10f, 0.08f)));
 
@@ -63,17 +63,17 @@ namespace Steading.EditorTools
 
             library.weapons.Add(MakeWeapon("BronzeAxe",         WeaponKind.Axe, WeaponTier.Bronze,
                 lightDmg: 22, heavyDmg: 38, lightCD: 0.52f, heavyCD: 0.85f, range: 2.3f,
-                cost: Cost(ResourceKind.Wood, 4, ResourceKind.Bronze, 5),
+                cost: Cost((ResourceKind.Wood, 4), (ResourceKind.Bronze, 5)),
                 blade: new Color(0.85f, 0.55f, 0.20f), grip: new Color(0.36f, 0.22f, 0.10f)));
 
             library.weapons.Add(MakeWeapon("IronAxe",           WeaponKind.Axe, WeaponTier.Iron,
                 lightDmg: 32, heavyDmg: 52, lightCD: 0.48f, heavyCD: 0.80f, range: 2.4f,
-                cost: Cost(ResourceKind.Wood, 6, ResourceKind.Iron, 8),
+                cost: Cost((ResourceKind.Wood, 6), (ResourceKind.Iron, 8)),
                 blade: new Color(0.78f, 0.80f, 0.84f), grip: new Color(0.20f, 0.16f, 0.12f)));
 
             library.weapons.Add(MakeWeapon("RusticSteelAxe",    WeaponKind.Axe, WeaponTier.Steel,
                 lightDmg: 44, heavyDmg: 70, lightCD: 0.46f, heavyCD: 0.76f, range: 2.5f,
-                cost: Cost(ResourceKind.Wood, 10, ResourceKind.Iron, 6, ResourceKind.Steel, 8),
+                cost: Cost((ResourceKind.Wood, 10), (ResourceKind.Iron, 6), (ResourceKind.Steel, 8)),
                 blade: new Color(0.62f, 0.66f, 0.72f), grip: new Color(0.14f, 0.10f, 0.08f)));
 
             EditorUtility.SetDirty(library);
@@ -114,12 +114,14 @@ namespace Steading.EditorTools
             return def;
         }
 
-        private static ResourceCost[] Cost(params object[] pairs)
+        // Compile-time-typed cost factory. `Cost((Wood, 3), (Bronze, 4))`
+        // produces a ResourceCost[] without any unchecked boxing/casts.
+        private static ResourceCost[] Cost(params (ResourceKind kind, int amount)[] pairs)
         {
-            var list = new List<ResourceCost>();
-            for (int i = 0; i + 1 < pairs.Length; i += 2)
+            var list = new List<ResourceCost>(pairs.Length);
+            for (int i = 0; i < pairs.Length; i++)
             {
-                list.Add(new ResourceCost { kind = (ResourceKind)pairs[i], amount = (int)pairs[i + 1] });
+                list.Add(new ResourceCost { kind = pairs[i].kind, amount = pairs[i].amount });
             }
             return list.ToArray();
         }

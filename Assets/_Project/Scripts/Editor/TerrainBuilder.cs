@@ -19,6 +19,7 @@ namespace Steading.EditorTools
     {
         private const string WorldScenePath = "Assets/_Project/Scenes/World_Test.unity";
         private const string MaterialPath   = "Assets/_Project/Art/Materials/Terrain.mat";
+        private const string MeshAssetPath  = "Assets/_Project/Art/Meshes/SteadingTerrain.mesh";
 
         // Map size + resolution. 1024m × 1024m at 4m grid = 257×257 verts ≈ 66k.
         private const float MapSize = 1024f;
@@ -162,6 +163,15 @@ namespace Steading.EditorTools
             mesh.RecalculateNormals();
             mesh.RecalculateTangents();
             mesh.RecalculateBounds();
+
+            // Persist the mesh as a project asset so:
+            //  - the scene file doesn't bloat with embedded geometry,
+            //  - MeshCollider + NavMeshSurface re-bake cleanly across reloads,
+            //  - we don't lose the terrain on a domain reload.
+            EnsureFolder("Assets/_Project/Art/Meshes");
+            var existingMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshAssetPath);
+            if (existingMesh != null) AssetDatabase.DeleteAsset(MeshAssetPath);
+            AssetDatabase.CreateAsset(mesh, MeshAssetPath);
 
             EnsureFolder("Assets/_Project/Art/Materials");
             var mat = AssetDatabase.LoadAssetAtPath<Material>(MaterialPath);

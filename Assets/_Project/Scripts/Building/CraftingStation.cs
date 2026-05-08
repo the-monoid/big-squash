@@ -33,26 +33,40 @@ namespace Steading.Building
             All.Remove(this);
         }
 
+        // Per-connection in-flight guard. Prevents TOCTOU on the SyncVar
+        // wallet if the client double-clicks before the resource decrement
+        // has propagated.
+        private readonly System.Collections.Generic.HashSet<NetworkConnection> _pending =
+            new System.Collections.Generic.HashSet<NetworkConnection>();
+
         // Server validates and either succeeds or no-ops. Caller is the player
         // (uses sender connection) — only their inventory is touched.
         [Command(requiresAuthority = false)]
         public void CmdCraft(int weaponDefIndex, NetworkConnectionToClient sender = null)
         {
             if (sender == null || sender.identity == null) return;
-            var def = WeaponLibrary.Instance.GetByIndex(weaponDefIndex);
-            if (def == null) return;
-            if (def.starter) return; // can't "craft" a starter — already owned
+            if (!_pending.Add(sender)) return;       // already in flight — drop
+            try
+            {
+                var def = WeaponLibrary.Instance.GetByIndex(weaponDefIndex);
+                if (def == null) return;
+                if (def.starter) return; // can't "craft" a starter — already owned
 
-            var playerObj = sender.identity.gameObject;
-            var inventory = playerObj.GetComponent<PlayerInventory>();
-            var attack = playerObj.GetComponent<PlayerAttack>();
-            if (inventory == null || attack == null) return;
+                var playerObj = sender.identity.gameObject;
+                var inventory = playerObj.GetComponent<PlayerInventory>();
+                var attack = playerObj.GetComponent<PlayerAttack>();
+                if (inventory == null || attack == null) return;
 
-            // Range check (server-side)
-            if (Vector3.Distance(playerObj.transform.position, transform.position) > interactRadius + 1.5f) return;
+                // Range check (server-side)
+                if (Vector3.Distance(playerObj.transform.position, transform.position) > interactRadius + 1.5f) return;
 
-            if (!inventory.TrySpend(def.cost)) return;
-            attack.ServerUnlockWeapon(weaponDefIndex);
+                if (!inventory.TrySpend(def.cost)) return;
+                attack.ServerUnlockWeapon(weaponDefIndex);
+            }
+            finally
+            {
+                _pending.Remove(sender);
+            }
         }
     }
 }
