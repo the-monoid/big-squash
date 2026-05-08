@@ -15,35 +15,23 @@ namespace Steading.Player
         [SerializeField] private float gravity = -20f;
         [SerializeField] private float mouseLookSpeed = 2.2f;
 
-        [Header("Camera")]
-        [SerializeField] private Transform cameraPivot;
-        [SerializeField] private Vector3 cameraOffset = new Vector3(0f, 0.3f, -3.5f);
-
         private CharacterController _cc;
         private PlayerInput _input;
         private Vector3 _velocity;
-        private float _pitch;
 
         private void Awake()
         {
             _cc = GetComponent<CharacterController>();
             _input = GetComponent<PlayerInput>();
-            if (GetComponent<PlayerVisualAnimator>() == null)
-            {
-                gameObject.AddComponent<PlayerVisualAnimator>();
-            }
+            // PlayerVisualAnimator (procedural blob rig) is no longer auto-added;
+            // PlayerAnimatorBridge drives the imported VikingHero Animator instead.
         }
 
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
-            if (Camera.main != null && cameraPivot != null)
-            {
-                Camera.main.transform.SetParent(cameraPivot, worldPositionStays: false);
-                Camera.main.transform.localPosition = cameraOffset;
-                Camera.main.transform.localRotation = Quaternion.identity;
-            }
-            Cursor.lockState = CursorLockMode.Locked;
+            // Camera setup is handled by PlayerCameraRig (Cinemachine third-person rig).
+            // PlayerCameraRig.OnStartLocalPlayer locks the cursor itself.
         }
 
         // M1: owner-driven movement with NetworkTransform replicating to others.
@@ -52,13 +40,11 @@ namespace Steading.Player
         {
             if (!isLocalPlayer) return;
 
+            // Yaw the player with mouse-X. Pitch is handled by Cinemachine's
+            // POV/RotationComposer on the camera, not by us — the player body
+            // rotates around Y only.
             var look = _input.LookAxis * mouseLookSpeed;
             transform.Rotate(0f, look.x, 0f);
-            if (cameraPivot != null)
-            {
-                _pitch = Mathf.Clamp(_pitch - look.y, -85f, 85f);
-                cameraPivot.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
-            }
 
             var move = _input.MoveAxis;
             var speed = _input.SprintHeld ? runSpeed : walkSpeed;

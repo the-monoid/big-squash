@@ -16,13 +16,13 @@ namespace Steading.Player
         [SyncVar(hook = nameof(OnBoolChanged))] private bool beardEnabled = CharacterCustomization.Default.beardEnabled;
         [SyncVar(hook = nameof(OnBoolChanged))] private bool helmetEnabled = CharacterCustomization.Default.helmetEnabled;
 
-        private PlayerVisualAnimator _visualAnimator;
+        private PlayerAnimatorBridge _visualAnimator;
 
         public string CharacterName => characterName;
 
         private void Awake()
         {
-            _visualAnimator = GetComponent<PlayerVisualAnimator>();
+            _visualAnimator = GetComponent<PlayerAnimatorBridge>();
         }
 
         public override void OnStartClient()
@@ -90,7 +90,7 @@ namespace Steading.Player
 
         private void ApplyCurrentCustomization()
         {
-            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerVisualAnimator>();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
             if (_visualAnimator == null) return;
 
             _visualAnimator.ApplyCustomization(BuildCustomization());

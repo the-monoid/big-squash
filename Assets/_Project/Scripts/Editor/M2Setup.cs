@@ -70,7 +70,7 @@ namespace Steading.EditorTools
             EnsureComponent<Health>(root);
             EnsureComponent<PlayerAttack>(root);
             EnsureComponent<PlayerRespawn>(root);
-            EnsureComponent<PlayerVisualAnimator>(root);
+            EnsureComponent<PlayerAnimatorBridge>(root);
             EnsureComponent<PlayerInventory>(root);
         }
 

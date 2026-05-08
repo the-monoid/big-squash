@@ -110,6 +110,29 @@ person rig. Phase 3 is the Shield Rush + Charged Power Bash on top of that.
 
 ---
 
+## After Phase 2 lands (post-commit menus to run)
+
+When Phase 2 code is in the repo, do these in order in Unity (each takes ~5s):
+
+1. **Steading → Animator: Build Player Camera Rig** — generates
+   `Assets/_Project/Prefabs/PlayerCameraRig.prefab` (Cinemachine 3rd-person
+   rig).
+2. **Steading → Animator: Build PlayerAnimator Controller** — generates
+   `Assets/_Project/Animation/PlayerAnimator.controller` from the imported
+   Mixamo clips. Logs warnings for any missing clip; if you skipped one in
+   Phase 0 it won't break the build, just won't have that state.
+3. **Steading → M1: Generate Bootstrap, World, and Player** — re-runs the
+   player prefab generator, this time wiring the imported VikingHero +
+   PlayerAnimatorBridge + PlayerCameraRig prefab in.
+
+Then press Play → Host. Should see:
+- Real humanoid Viking (Mixamo X Bot mesh) replacing the procedural blob.
+- Locomotion blend tree: idle → walk → run smoothly as you move.
+- Cinemachine over-the-shoulder camera that doesn't clip into walls.
+- Sword swing / shield rush trigger the new animation states.
+
+---
+
 ## Troubleshooting
 
 - **"Player_VikingHero.fbx imports as Generic, not Humanoid"** — The

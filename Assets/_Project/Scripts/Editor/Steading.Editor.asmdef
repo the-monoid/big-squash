@@ -10,7 +10,8 @@
         "Unity.AI.Navigation",
         "Unity.AI.Navigation.Editor",
         "Unity.RenderPipelines.Universal.Runtime",
-        "Unity.RenderPipelines.Core.Runtime"
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.Cinemachine"
     ],
     "includePlatforms": [
         "Editor"
@@ -21,6 +22,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.cinemachine",
+            "expression": "3.0.0",
+            "define": "STEADING_CINEMACHINE"
+        }
+    ],
     "noEngineReferences": false
 }

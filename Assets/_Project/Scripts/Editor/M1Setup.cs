@@ -62,29 +62,50 @@ namespace Steading.EditorTools
             EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Single);
         }
 
+        private const string ImportedVikingHeroPath = "Assets/_Project/Art/Models/Characters/Player/Player_VikingHero.fbx";
+        private const string PlayerAnimatorPath     = "Assets/_Project/Animation/PlayerAnimator.controller";
+        private const string PlayerCameraRigPath    = "Assets/_Project/Prefabs/PlayerCameraRig.prefab";
+
         private static GameObject CreatePlayerPrefab(Material visualMaterial)
         {
             var root = new GameObject("Player");
             root.transform.position = Vector3.zero;
 
-            // Visual: capsule with collider stripped (CharacterController handles collision).
-            var visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            visual.name = "Visual";
-            Object.DestroyImmediate(visual.GetComponent<CapsuleCollider>());
-            visual.transform.SetParent(root.transform, false);
-            visual.transform.localPosition = new Vector3(0f, 1f, 0f);
-            if (visualMaterial != null)
+            // Try the imported Mixamo VikingHero rig first. Fall back to the old
+            // procedural visual only if the FBX hasn't landed yet.
+            var imported = AssetDatabase.LoadAssetAtPath<GameObject>(ImportedVikingHeroPath);
+            if (imported != null)
             {
-                visual.GetComponent<MeshRenderer>().sharedMaterial = visualMaterial;
-            }
+                var visual = (GameObject)PrefabUtility.InstantiatePrefab(imported);
+                visual.name = "VisualRig";
+                visual.transform.SetParent(root.transform, false);
+                visual.transform.localPosition = Vector3.zero;
+                visual.transform.localRotation = Quaternion.identity;
 
-            // Camera pivot at chest height. PlayerController applies cameraOffset
-            // (0, 0.3, -3.5) at runtime so the camera sits behind/above the player
-            // (third-person, Valheim-style). Mouse Y pitches the pivot, so the
-            // camera orbits this anchor.
-            var pivot = new GameObject("CameraPivot");
-            pivot.transform.SetParent(root.transform, false);
-            pivot.transform.localPosition = new Vector3(0f, 1.5f, 0f);
+                // The Mixamo X Bot rig comes already at ~1.85m tall in T-pose; we
+                // don't need to scale it. The Animator on the imported instance is
+                // the one we drive — wire the controller asset if available.
+                var anim = visual.GetComponent<Animator>();
+                if (anim == null) anim = visual.AddComponent<Animator>();
+                var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorPath);
+                if (controller != null) anim.runtimeAnimatorController = controller;
+                anim.applyRootMotion = false;
+            }
+            else
+            {
+                // Fallback for the pre-Phase-0 / pre-Mixamo state — a plain capsule
+                // with the painterly material so the project still works if assets
+                // aren't imported.
+                var visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                visual.name = "VisualFallback";
+                Object.DestroyImmediate(visual.GetComponent<CapsuleCollider>());
+                visual.transform.SetParent(root.transform, false);
+                visual.transform.localPosition = new Vector3(0f, 1f, 0f);
+                if (visualMaterial != null)
+                {
+                    visual.GetComponent<MeshRenderer>().sharedMaterial = visualMaterial;
+                }
+            }
 
             var cc = root.AddComponent<CharacterController>();
             cc.height = 1.8f;
@@ -96,13 +117,26 @@ namespace Steading.EditorTools
             nt.syncDirection = SyncDirection.ClientToServer;
 
             root.AddComponent<PlayerInput>();
-            root.AddComponent<PlayerVisualAnimator>();
+
+            // PlayerVisualAnimator (procedural blob rig) is no longer added — the
+            // bridge drives the imported FBX's Animator instead. Bridge auto-finds
+            // it via GetComponentInChildren so we don't have to move the Animator.
+            root.AddComponent<PlayerAnimatorBridge>();
+
             root.AddComponent<PlayerAppearance>();
             root.AddComponent<PlayerInventory>();
-            var pc = root.AddComponent<PlayerController>();
-            var so = new SerializedObject(pc);
-            so.FindProperty("cameraPivot").objectReferenceValue = pivot.transform;
-            so.ApplyModifiedPropertiesWithoutUndo();
+            root.AddComponent<PlayerController>();
+
+            // Cinemachine 3rd-person rig. PlayerCameraRig.cs spawns the prefab on
+            // the local player and binds Follow/LookAt to mixamorig:Spine2.
+            var camRig = root.AddComponent<PlayerCameraRig>();
+            var camRigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerCameraRigPath);
+            if (camRigPrefab != null)
+            {
+                var so = new SerializedObject(camRig);
+                so.FindProperty("cameraRigPrefab").objectReferenceValue = camRigPrefab;
+                so.ApplyModifiedPropertiesWithoutUndo();
+            }
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefabPath);
             Object.DestroyImmediate(root);

@@ -83,7 +83,7 @@ namespace Steading.Combat
         private bool _serverAttackPending;
         private bool _localBlockingSent;
         private BuildController _buildController;
-        private PlayerVisualAnimator _visualAnimator;
+        private PlayerAnimatorBridge _visualAnimator;
         private Transform _swordRoot;
         private Transform _axeRoot;
         private Coroutine _swingRoutine;
@@ -96,7 +96,7 @@ namespace Steading.Combat
         private void Awake()
         {
             _buildController = GetComponent<BuildController>();
-            _visualAnimator = GetComponent<PlayerVisualAnimator>();
+            _visualAnimator = GetComponent<PlayerAnimatorBridge>();
         }
 
         public override void OnStartClient()
@@ -426,7 +426,7 @@ namespace Steading.Combat
         private void RpcPlayWeaponSwing(WeaponKind weapon, bool heavy, int comboStep)
         {
             EnsureWeaponModels();
-            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerVisualAnimator>();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
             if (_visualAnimator != null) _visualAnimator.PlaySwordAttackPose(heavy, comboStep);
 
             if (_swingRoutine != null) StopCoroutine(_swingRoutine);
@@ -437,7 +437,7 @@ namespace Steading.Combat
         private void RpcPlayShieldBash()
         {
             EnsureWeaponModels();
-            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerVisualAnimator>();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
             if (_visualAnimator != null) _visualAnimator.PlayShieldBashPose();
             StartCoroutine(PulseWeapon(GetActiveWeaponRoot(), 1.08f, 0.045f));
         }
@@ -446,7 +446,7 @@ namespace Steading.Combat
         private void RpcPlayWeaponSkill(WeaponKind weapon)
         {
             EnsureWeaponModels();
-            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerVisualAnimator>();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
             if (_visualAnimator != null) _visualAnimator.PlaySkillAttackPose(weapon == WeaponKind.Axe);
 
             if (_swingRoutine != null) StopCoroutine(_swingRoutine);
@@ -501,8 +501,8 @@ namespace Steading.Combat
 
         private Transform GetWeaponParent()
         {
-            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerVisualAnimator>();
-            if (_visualAnimator == null) _visualAnimator = gameObject.AddComponent<PlayerVisualAnimator>();
+            if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
+            if (_visualAnimator == null) _visualAnimator = gameObject.AddComponent<PlayerAnimatorBridge>();
             _visualAnimator.EnsureRig();
             return _visualAnimator.RightHandSocket != null ? _visualAnimator.RightHandSocket : transform;
         }

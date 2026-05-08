@@ -23,6 +23,10 @@ namespace Steading.EditorTools
     public class SteadingFbxPostprocessor : AssetPostprocessor
     {
         private const string ModelsRootRelative = "Assets/_Project/Art/Models";
+        private const string PlayerBaseFileName = "Player_VikingHero";
+        private const string EnemyBaseFileName  = "Enemy_Draugr";
+        private const string PlayerAvatarSubAssetPath = ModelsRootRelative + "/Characters/Player/Player_VikingHero.fbx";
+        private const string EnemyAvatarSubAssetPath  = ModelsRootRelative + "/Characters/Enemies/Enemy_Draugr.fbx";
 
         // ------------------------------------------------- Pre-import settings
 
@@ -50,15 +54,57 @@ namespace Steading.EditorTools
             {
                 case SteadingCategory.Player:
                     importer.animationType = ModelImporterAnimationType.Human;
-                    importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
                     importer.importAnimation = isAnimated;
                     importer.importNormals = ModelImporterNormals.Calculate;
+                    // The rigged base mesh (Player_VikingHero) defines its OWN avatar.
+                    // Every other Player_*.fbx is a Mixamo animation clip — it must
+                    // copy the avatar from the base so Mecanim retargets the bones
+                    // correctly. Without this, each anim FBX makes its own incompatible
+                    // avatar and the player just T-poses.
+                    var fnPlayer = Path.GetFileNameWithoutExtension(assetPath);
+                    if (string.Equals(fnPlayer, PlayerBaseFileName, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                    }
+                    else
+                    {
+                        var baseAvatar = AssetDatabase.LoadAssetAtPath<Avatar>(PlayerAvatarSubAssetPath);
+                        if (baseAvatar != null)
+                        {
+                            importer.sourceAvatar = baseAvatar;
+                            importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
+                        }
+                        else
+                        {
+                            // Base avatar isn't loaded yet (first-import order). Fall
+                            // back to CreateFromThisModel; we re-apply on a follow-up
+                            // pass via OnPostprocessAllAssets below.
+                            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                        }
+                    }
                     break;
                 case SteadingCategory.Enemy:
                     importer.animationType = ModelImporterAnimationType.Generic;
-                    importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
                     importer.importAnimation = isAnimated;
                     importer.importNormals = ModelImporterNormals.Calculate;
+                    var fnEnemy = Path.GetFileNameWithoutExtension(assetPath);
+                    if (string.Equals(fnEnemy, EnemyBaseFileName, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                    }
+                    else
+                    {
+                        var baseAvatar = AssetDatabase.LoadAssetAtPath<Avatar>(EnemyAvatarSubAssetPath);
+                        if (baseAvatar != null)
+                        {
+                            importer.sourceAvatar = baseAvatar;
+                            importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
+                        }
+                        else
+                        {
+                            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                        }
+                    }
                     break;
                 case SteadingCategory.Weapon:
                 case SteadingCategory.Buildable:
@@ -128,6 +174,14 @@ namespace Steading.EditorTools
         // that isn't on the painterly shader yet.
         private static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
         {
+            // ---- Avatar copy race recovery ----
+            // If the base rigged FBX (Player_VikingHero / Enemy_Draugr) was just
+            // imported, force-reimport every sibling animation FBX so they pick up
+            // the now-existing avatar. Otherwise the animations stay as their own
+            // incompatible avatars and Mecanim retargeting fails (T-pose).
+            ReapplyAvatarsIfBaseLanded(imported, PlayerAvatarSubAssetPath, PlayerBaseFileName);
+            ReapplyAvatarsIfBaseLanded(imported, EnemyAvatarSubAssetPath,  EnemyBaseFileName);
+
             var painterly = Shader.Find("Steading/PainterlyLit");
             if (painterly == null) return;
 
@@ -159,6 +213,46 @@ namespace Steading.EditorTools
                 mat.SetFloat("_AmbientStrength", 0.55f);
 
                 EditorUtility.SetDirty(mat);
+            }
+        }
+
+        private static void ReapplyAvatarsIfBaseLanded(string[] imported, string baseFbxPath, string baseFileName)
+        {
+            bool baseImported = false;
+            foreach (var p in imported)
+            {
+                if (p.Replace('\\', '/').Equals(baseFbxPath, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    baseImported = true;
+                    break;
+                }
+            }
+            if (!baseImported) return;
+
+            var avatar = AssetDatabase.LoadAssetAtPath<Avatar>(baseFbxPath);
+            if (avatar == null) return;
+
+            // Find every sibling animation FBX in the same folder.
+            var folder = Path.GetDirectoryName(baseFbxPath)?.Replace('\\', '/');
+            if (string.IsNullOrEmpty(folder)) return;
+
+            var siblings = AssetDatabase.FindAssets("t:Model", new[] { folder });
+            foreach (var guid in siblings)
+            {
+                var siblingPath = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.IsNullOrEmpty(siblingPath)) continue;
+                if (siblingPath.Equals(baseFbxPath, System.StringComparison.OrdinalIgnoreCase)) continue;
+                var name = Path.GetFileNameWithoutExtension(siblingPath);
+                if (string.Equals(name, baseFileName, System.StringComparison.OrdinalIgnoreCase)) continue;
+
+                var importer = AssetImporter.GetAtPath(siblingPath) as ModelImporter;
+                if (importer == null) continue;
+                if (importer.sourceAvatar == avatar &&
+                    importer.avatarSetup == ModelImporterAvatarSetup.CopyFromOther) continue;
+
+                importer.sourceAvatar = avatar;
+                importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
+                importer.SaveAndReimport();
             }
         }
 
