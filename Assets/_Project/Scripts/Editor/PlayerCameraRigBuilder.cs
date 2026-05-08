@@ -75,11 +75,11 @@ namespace Steading.EditorTools
             obstacles.DampingFromCollision = 0.30f;
             follow.AvoidObstacles = obstacles;
 
-            var rotation = camGo.AddComponent<CinemachineRotationComposer>();
-            // Cinemachine 3.1 renamed TargetOffset → TrackedObjectOffset and the
-            // damping is on the nested Damping field (Vector2 not always — depends
-            // on patch). Set what's safe; user can hand-tune in the inspector.
-            rotation.TrackedObjectOffset = new Vector3(0f, 0.4f, 0f);
+            // RotationComposer keeps the camera aimed at the LookAt target. The
+            // 3.1.2 API moves composition fields under a nested struct that's
+            // version-finicky to set in code, so we just attach with defaults
+            // here and let the user tune in the Inspector if needed.
+            camGo.AddComponent<CinemachineRotationComposer>();
 
             // Save as prefab.
             EnsureFolder("Assets/_Project/Prefabs");
