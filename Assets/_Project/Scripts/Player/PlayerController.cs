@@ -17,34 +17,41 @@ namespace Steading.Player
 
         private CharacterController _cc;
         private PlayerInput _input;
+        private PlayerCameraRig _cameraRig;
         private Vector3 _velocity;
 
         private void Awake()
         {
             _cc = GetComponent<CharacterController>();
             _input = GetComponent<PlayerInput>();
-            // PlayerVisualAnimator (procedural blob rig) is no longer auto-added;
-            // PlayerAnimatorBridge drives the imported VikingHero Animator instead.
+            _cameraRig = GetComponent<PlayerCameraRig>();
         }
 
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
-            // Camera setup is handled by PlayerCameraRig (Cinemachine third-person rig).
-            // PlayerCameraRig.OnStartLocalPlayer locks the cursor itself.
+            // Cursor lock + Cinemachine setup are owned by PlayerCameraRig now.
         }
 
-        // M1: owner-driven movement with NetworkTransform replicating to others.
-        // M2 will introduce server-authoritative CmdMove for anti-cheat.
+        // Owner-driven movement. NetworkTransform replicates position+rotation
+        // to other clients. M2 will introduce server-authoritative CmdMove for
+        // anti-cheat hardening.
         private void Update()
         {
             if (!isLocalPlayer) return;
 
-            // Yaw the player with mouse-X. Pitch is handled by Cinemachine's
-            // POV/RotationComposer on the camera, not by us — the player body
-            // rotates around Y only.
-            var look = _input.LookAxis * mouseLookSpeed;
-            transform.Rotate(0f, look.x, 0f);
+            // Yaw: PlayerCameraRig owns mouse-X; the body follows it. Falls back
+            // to direct mouse-X handling if no rig is present (server build,
+            // remote client, etc.).
+            if (_cameraRig != null)
+            {
+                transform.rotation = Quaternion.Euler(0f, _cameraRig.YawDeg, 0f);
+            }
+            else
+            {
+                var look = _input.LookAxis * mouseLookSpeed;
+                transform.Rotate(0f, look.x, 0f);
+            }
 
             var move = _input.MoveAxis;
             var speed = _input.SprintHeld ? runSpeed : walkSpeed;

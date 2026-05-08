@@ -1,149 +1,144 @@
 using Mirror;
 using UnityEngine;
-#if STEADING_CINEMACHINE
-using Unity.Cinemachine;
-#endif
 
 namespace Steading.Player
 {
-    // Local-player only. Spawns a CinemachineCamera (built by
-    // SteadingPlayerCameraRigBuilder) and ensures the scene's Main Camera has a
-    // CinemachineBrain to drive it.
+    // Hand-rolled third-person camera. Replaces Cinemachine entirely — fewer
+    // moving parts, deterministic across Cinemachine 3.x patch releases, and
+    // we know exactly what it does at every frame.
     //
-    // Why this shape: the rig prefab is intentionally JUST a CinemachineCamera —
-    // it does not contain its own Camera or Brain. M1Setup created the scene's
-    // Main Camera; we attach a Brain to that one. Result: exactly ONE Camera
-    // in the scene, no tagging fights, no "POV inside the character" surprise.
+    // Behavior:
+    //   * Mouse-X yaws the player body (PlayerController also does this; we
+    //     don't double-rotate — only the camera reads mouse-X for its own
+    //     yaw smoothing here, and PlayerController already yaws the body).
+    //   * Mouse-Y pitches the camera up/down, clamped.
+    //   * Camera position = orbit around a Chest-bone anchor at (offsetSide,
+    //     offsetUp, -offsetBack). Smooth-damped to avoid jitter.
+    //   * Spherecast from anchor toward desired position; if anything blocks,
+    //     pull camera in.
+    //
+    // Drives Camera.main directly — no Brain, no CmCamera, no second camera.
     public class PlayerCameraRig : NetworkBehaviour
     {
-        [Tooltip("Prefab containing the CinemachineCamera + ThirdPersonFollow. Built by Steading > Animator: Build Player Camera Rig.")]
-        [SerializeField] private GameObject cameraRigPrefab;
+        [Header("Anchor")]
+        [Tooltip("Bone name fallback if Animator.GetBoneTransform misses (rare).")]
+        [SerializeField] private string fallbackBoneName = "mixamorig:Spine2";
+        [SerializeField] private float anchorUpOffset = 0.35f;
 
-        [Tooltip("Bone name to use for camera target. Defaults to mixamorig:Spine2 for the X Bot rig.")]
-        [SerializeField] private string targetBoneName = "mixamorig:Spine2";
+        [Header("Orbit")]
+        [SerializeField] private float distance = 3.6f;
+        [SerializeField] private float shoulderSide = 0.45f;
+        [SerializeField] private float verticalOffset = 0.3f;
+        [SerializeField] private float pitchMin = -35f;
+        [SerializeField] private float pitchMax = 70f;
+        [SerializeField] private float lookSpeed = 2.4f;
 
-        [Tooltip("If non-null, falls back to this transform when targetBoneName isn't found.")]
-        [SerializeField] private Transform fallbackTarget;
+        [Header("Smoothing")]
+        [SerializeField] private float positionSmooth = 0.06f;
+        [SerializeField] private float rotationSmooth = 0.04f;
 
-        [Tooltip("Vertical offset added to the bone target so the camera lines up with the player's head (the Mixamo spine is below the head by ~0.4m).")]
-        [SerializeField] private float targetUpOffset = 0.35f;
+        [Header("Collision")]
+        [SerializeField] private float collisionRadius = 0.20f;
+        [SerializeField] private LayerMask collisionMask = ~0;
+        [Tooltip("Don't push the camera closer than this fraction of distance when colliding.")]
+        [SerializeField] private float minCollisionDistance = 0.4f;
 
-        private GameObject _spawnedRig;
+        private Transform _anchor;
+        private Camera _cam;
+        private float _yaw;
+        private float _pitch;
+        private Vector3 _smoothPos;
+
+        public float YawDeg => _yaw;
 
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
 
-            if (cameraRigPrefab == null)
+            _cam = Camera.main;
+            if (_cam == null)
             {
-                Debug.LogError("[Steading] PlayerCameraRig: cameraRigPrefab is null. Run 'Steading/Animator: Build Player Camera Rig' AND THEN 'Steading/M1: Generate Bootstrap, World, and Player' so the field gets wired into Player.prefab.");
+                Debug.LogError("[Steading] PlayerCameraRig: no Main Camera in scene.");
+                enabled = false;
                 return;
             }
 
-            var sceneCam = Camera.main;
-            Debug.Log(sceneCam != null
-                ? $"[Steading] Camera.main resolved to '{sceneCam.name}' at {sceneCam.transform.position}."
-                : "[Steading] Camera.main is NULL — no MainCamera-tagged camera in scene. Cinemachine cannot drive anything.");
-
-            var brainAdded = EnsureBrainOnSceneCamera();
-            Debug.Log($"[Steading] Brain on scene camera: {(brainAdded ? "ADDED" : "already present (or no Camera.main)")}.");
-
-            _spawnedRig = Instantiate(cameraRigPrefab);
-            _spawnedRig.name = "PlayerThirdPersonCam (Local)";
-
-            var target = ResolveCameraTarget();
-            BindRig(_spawnedRig, target);
-
-#if STEADING_CINEMACHINE
-            var cm = _spawnedRig.GetComponentInChildren<CinemachineCamera>();
-            if (cm != null)
-            {
-                Debug.Log($"[Steading] CmCamera bound — Follow='{(cm.Follow ? cm.Follow.name : "null")}' LookAt='{(cm.LookAt ? cm.LookAt.name : "null")}' Priority={cm.Priority.Value}");
-            }
-            else
-            {
-                Debug.LogError("[Steading] Spawned rig has no CinemachineCamera child! The prefab is broken — re-run 'Steading/Animator: Build Player Camera Rig'.");
-            }
-#else
-            Debug.LogWarning("[Steading] Cinemachine not detected via STEADING_CINEMACHINE. Camera will not follow.");
-#endif
+            _anchor = ResolveAnchor();
+            _yaw = transform.eulerAngles.y;
+            _pitch = 12f;
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            Debug.Log($"[Steading] PlayerCameraRig active — Camera='{_cam.name}', anchor='{_anchor.name}'.");
         }
 
-        // Best-effort camera anchor resolution. Tries Humanoid avatar first
-        // (works regardless of source naming, e.g. "mixamorig:Spine2" vs just
-        // "Spine2"), then a literal bone-name search, then fallbackTarget,
-        // then a synthesized chest-height anchor on the player root.
-        private Transform ResolveCameraTarget()
+        private Transform ResolveAnchor()
         {
-            // Attempt 1: Humanoid avatar's Chest/Spine bone via Animator.
+            // 1) Humanoid bone via Animator
             var animator = GetComponentInChildren<Animator>();
             if (animator != null && animator.isHuman)
             {
-                Transform bone = animator.GetBoneTransform(HumanBodyBones.Chest);
-                if (bone == null) bone = animator.GetBoneTransform(HumanBodyBones.Spine);
-                if (bone == null) bone = animator.GetBoneTransform(HumanBodyBones.Head);
-                if (bone != null)
-                {
-                    return MakeOffsetAnchor(bone, new Vector3(0f, targetUpOffset, 0f));
-                }
+                Transform bone = animator.GetBoneTransform(HumanBodyBones.Chest)
+                              ?? animator.GetBoneTransform(HumanBodyBones.Spine)
+                              ?? animator.GetBoneTransform(HumanBodyBones.Head);
+                if (bone != null) return MakeOffsetAnchor(bone, new Vector3(0f, anchorUpOffset, 0f));
             }
 
-            // Attempt 2: literal bone name (Mixamo "mixamorig:Spine2" etc.).
-            var named = FindBone(transform, targetBoneName);
-            if (named != null) return MakeOffsetAnchor(named, new Vector3(0f, targetUpOffset, 0f));
+            // 2) Literal bone name
+            var literal = FindBone(transform, fallbackBoneName);
+            if (literal != null) return MakeOffsetAnchor(literal, new Vector3(0f, anchorUpOffset, 0f));
 
-            // Attempt 3: serialized fallback.
-            if (fallbackTarget != null) return fallbackTarget;
-
-            // Attempt 4: synthesize a chest-height anchor on the player root.
+            // 3) Synthesized chest-height anchor on player root
             return MakeOffsetAnchor(transform, new Vector3(0f, 1.55f, 0f));
         }
 
+        private void LateUpdate()
+        {
+            if (!isLocalPlayer || _cam == null || _anchor == null) return;
+
+            // Mouse pitch (yaw is owned by PlayerController so the body turns
+            // with the camera). We track our own yaw in sync with the player.
+            var mx = Input.GetAxis("Mouse X") * lookSpeed;
+            var my = Input.GetAxis("Mouse Y") * lookSpeed;
+            _yaw += mx;
+            _pitch = Mathf.Clamp(_pitch - my, pitchMin, pitchMax);
+
+            // Where the camera WANTS to be in world space.
+            var rot = Quaternion.Euler(_pitch, _yaw, 0f);
+            var anchorWorld = _anchor.position;
+            var idealOffset = rot * new Vector3(shoulderSide, verticalOffset, -distance);
+            var idealPos = anchorWorld + idealOffset;
+
+            // Collision: pull in if a wall is in the way.
+            var dirFromAnchor = (idealPos - anchorWorld);
+            var d = dirFromAnchor.magnitude;
+            if (d > 0.001f &&
+                Physics.SphereCast(anchorWorld, collisionRadius, dirFromAnchor.normalized, out var hit, d, collisionMask, QueryTriggerInteraction.Ignore))
+            {
+                if (hit.collider.GetComponentInParent<Collider>()?.transform != transform)
+                {
+                    var clamped = Mathf.Max(hit.distance - collisionRadius * 0.5f, distance * minCollisionDistance);
+                    idealPos = anchorWorld + dirFromAnchor.normalized * clamped;
+                }
+            }
+
+            _smoothPos = Vector3.SmoothDamp(_cam.transform.position, idealPos, ref _smoothVel, positionSmooth);
+            _cam.transform.position = _smoothPos;
+
+            // Look toward the anchor (slightly above).
+            var lookTarget = anchorWorld + Vector3.up * 0.05f;
+            var targetRot = Quaternion.LookRotation(lookTarget - _cam.transform.position, Vector3.up);
+            _cam.transform.rotation = Quaternion.Slerp(_cam.transform.rotation, targetRot, 1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(0.001f, rotationSmooth)));
+        }
+        private Vector3 _smoothVel;
+
         private static Transform MakeOffsetAnchor(Transform parent, Vector3 localOffset)
         {
-            var go = new GameObject("CameraTarget");
+            var go = new GameObject("CameraAnchor");
             go.transform.SetParent(parent, worldPositionStays: false);
             go.transform.localPosition = localOffset;
             return go.transform;
-        }
-
-        private void OnDestroy()
-        {
-            if (_spawnedRig != null) Destroy(_spawnedRig);
-        }
-
-        // ------------------------------------------------- Cinemachine plumbing
-
-        private static bool EnsureBrainOnSceneCamera()
-        {
-#if STEADING_CINEMACHINE
-            var cam = Camera.main;
-            if (cam == null) return false;
-            if (cam.GetComponent<CinemachineBrain>() == null)
-            {
-                cam.gameObject.AddComponent<CinemachineBrain>();
-                return true;
-            }
-#endif
-            return false;
-        }
-
-        private static void BindRig(GameObject rig, Transform target)
-        {
-#if STEADING_CINEMACHINE
-            var cam = rig.GetComponentInChildren<CinemachineCamera>();
-            if (cam != null)
-            {
-                cam.Follow = target;
-                cam.LookAt = target;
-            }
-#else
-            // Fallback for pre-Cinemachine state: just place the rig at the target.
-            rig.transform.SetParent(target, worldPositionStays: false);
-#endif
         }
 
         private static Transform FindBone(Transform root, string name)

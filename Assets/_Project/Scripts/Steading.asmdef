@@ -6,8 +6,7 @@
         "Mirror.Components",
         "Mirror.Transports",
         "UnityEngine.UI",
-        "Unity.AI.Navigation",
-        "Unity.Cinemachine"
+        "Unity.AI.Navigation"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -16,12 +15,6 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [
-        {
-            "name": "com.unity.cinemachine",
-            "expression": "3.0.0",
-            "define": "STEADING_CINEMACHINE"
-        }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

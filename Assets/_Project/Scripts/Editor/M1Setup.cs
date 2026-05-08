@@ -64,7 +64,6 @@ namespace Steading.EditorTools
 
         private const string ImportedVikingHeroPath = "Assets/_Project/Art/Models/Characters/Player/Player_VikingHero.fbx";
         private const string PlayerAnimatorPath     = "Assets/_Project/Animation/PlayerAnimator.controller";
-        private const string PlayerCameraRigPath    = "Assets/_Project/Prefabs/PlayerCameraRig.prefab";
 
         private static GameObject CreatePlayerPrefab(Material visualMaterial)
         {
@@ -84,12 +83,21 @@ namespace Steading.EditorTools
 
                 // The Mixamo X Bot rig comes already at ~1.85m tall in T-pose; we
                 // don't need to scale it. The Animator on the imported instance is
-                // the one we drive — wire the controller asset if available.
+                // the one we drive — wire the controller asset and the avatar.
+                //
+                // Force-setting the avatar is essential. Without it, even if the
+                // Animator instance has its FBX-imported avatar, runtime can end
+                // up with a null avatar reference (especially when InstantiatePrefab
+                // strips it under certain FBX configurations) and Mecanim falls
+                // back to T-pose silently.
                 var anim = visual.GetComponent<Animator>();
                 if (anim == null) anim = visual.AddComponent<Animator>();
                 var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorPath);
                 if (controller != null) anim.runtimeAnimatorController = controller;
+                var avatar = AssetDatabase.LoadAssetAtPath<Avatar>(ImportedVikingHeroPath);
+                if (avatar != null) anim.avatar = avatar;
                 anim.applyRootMotion = false;
+                anim.cullingMode = AnimatorCullingMode.AlwaysAnimate; // never go T-pose when off-screen
             }
             else
             {
@@ -127,16 +135,9 @@ namespace Steading.EditorTools
             root.AddComponent<PlayerInventory>();
             root.AddComponent<PlayerController>();
 
-            // Cinemachine 3rd-person rig. PlayerCameraRig.cs spawns the prefab on
-            // the local player and binds Follow/LookAt to mixamorig:Spine2.
-            var camRig = root.AddComponent<PlayerCameraRig>();
-            var camRigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerCameraRigPath);
-            if (camRigPrefab != null)
-            {
-                var so = new SerializedObject(camRig);
-                so.FindProperty("cameraRigPrefab").objectReferenceValue = camRigPrefab;
-                so.ApplyModifiedPropertiesWithoutUndo();
-            }
+            // Hand-rolled third-person camera. PlayerCameraRig drives Camera.main
+            // directly on the local player — no Cinemachine, no prefab, no Brain.
+            root.AddComponent<PlayerCameraRig>();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefabPath);
             Object.DestroyImmediate(root);
