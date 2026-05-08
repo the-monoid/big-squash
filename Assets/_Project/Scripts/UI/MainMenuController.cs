@@ -173,13 +173,30 @@ namespace Steading.UI
             CreateBox("Rack Axe Head", new Vector3(2.77f, 1.05f, 0.58f), new Vector3(0.22f, 0.16f, 0.035f), _stageIron);
         }
 
+        [SerializeField] private GameObject characterPreviewPrefab;
+
         private void BuildPreviewCharacter()
         {
-            var preview = new GameObject("Character Preview");
+            // The previous procedural PlayerVisualAnimator built its own mesh in
+            // Awake. PlayerAnimatorBridge does not — it expects a real rig in its
+            // hierarchy. MainMenuSetup wires this field to the imported Mixamo
+            // VikingHero FBX so the menu shows a real character.
+            GameObject preview;
+            if (characterPreviewPrefab != null)
+            {
+                preview = Instantiate(characterPreviewPrefab);
+                preview.name = "Character Preview";
+            }
+            else
+            {
+                preview = new GameObject("Character Preview (No Prefab)");
+                Debug.LogWarning("[Steading] MainMenuController.characterPreviewPrefab is null — main menu preview will be invisible. Re-run 'Steading > Generate Main Menu and Character Creator' after the FBX is imported.");
+            }
+
             preview.transform.position = new Vector3(1.05f, 0f, -0.15f);
             preview.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
             _previewRoot = preview.transform;
-            _previewAnimator = preview.AddComponent<PlayerAnimatorBridge>();
+            _previewAnimator = preview.GetComponent<PlayerAnimatorBridge>() ?? preview.AddComponent<PlayerAnimatorBridge>();
         }
 
         private void BuildCanvas()

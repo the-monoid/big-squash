@@ -45,35 +45,51 @@ namespace Steading.Player
             _spawnedRig = Instantiate(cameraRigPrefab);
             _spawnedRig.name = "PlayerThirdPersonCam (Local)";
 
-            // Build a child target transform offset above the spine bone so the
-            // camera aims at head height. Parented to the player so it follows
-            // automatically.
-            var bone = FindBone(transform, targetBoneName);
-            Transform target;
-            if (bone != null)
-            {
-                var anchor = new GameObject("CameraTarget").transform;
-                anchor.SetParent(bone, worldPositionStays: false);
-                anchor.localPosition = new Vector3(0f, targetUpOffset, 0f);
-                target = anchor;
-            }
-            else if (fallbackTarget != null)
-            {
-                target = fallbackTarget;
-            }
-            else
-            {
-                // No bones — make a child of root at chest height.
-                var anchor = new GameObject("CameraTarget").transform;
-                anchor.SetParent(transform, worldPositionStays: false);
-                anchor.localPosition = new Vector3(0f, 1.55f, 0f);
-                target = anchor;
-            }
-
+            var target = ResolveCameraTarget();
             BindRig(_spawnedRig, target);
+
+            Debug.Log($"[Steading] PlayerCameraRig bound to '{target.name}' at world {target.position}.");
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+        }
+
+        // Best-effort camera anchor resolution. Tries Humanoid avatar first
+        // (works regardless of source naming, e.g. "mixamorig:Spine2" vs just
+        // "Spine2"), then a literal bone-name search, then fallbackTarget,
+        // then a synthesized chest-height anchor on the player root.
+        private Transform ResolveCameraTarget()
+        {
+            // Attempt 1: Humanoid avatar's Chest/Spine bone via Animator.
+            var animator = GetComponentInChildren<Animator>();
+            if (animator != null && animator.isHuman)
+            {
+                Transform bone = animator.GetBoneTransform(HumanBodyBones.Chest);
+                if (bone == null) bone = animator.GetBoneTransform(HumanBodyBones.Spine);
+                if (bone == null) bone = animator.GetBoneTransform(HumanBodyBones.Head);
+                if (bone != null)
+                {
+                    return MakeOffsetAnchor(bone, new Vector3(0f, targetUpOffset, 0f));
+                }
+            }
+
+            // Attempt 2: literal bone name (Mixamo "mixamorig:Spine2" etc.).
+            var named = FindBone(transform, targetBoneName);
+            if (named != null) return MakeOffsetAnchor(named, new Vector3(0f, targetUpOffset, 0f));
+
+            // Attempt 3: serialized fallback.
+            if (fallbackTarget != null) return fallbackTarget;
+
+            // Attempt 4: synthesize a chest-height anchor on the player root.
+            return MakeOffsetAnchor(transform, new Vector3(0f, 1.55f, 0f));
+        }
+
+        private static Transform MakeOffsetAnchor(Transform parent, Vector3 localOffset)
+        {
+            var go = new GameObject("CameraTarget");
+            go.transform.SetParent(parent, worldPositionStays: false);
+            go.transform.localPosition = localOffset;
+            return go.transform;
         }
 
         private void OnDestroy()

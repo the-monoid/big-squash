@@ -141,6 +141,8 @@ namespace Steading.EditorTools
             eventSystem.AddComponent<StandaloneInputModule>();
         }
 
+        private const string ImportedVikingHeroPath = "Assets/_Project/Art/Models/Characters/Player/Player_VikingHero.fbx";
+
         private static void CreateMainMenuController(GameObject playerPrefab)
         {
             var go = new GameObject("MainMenuController");
@@ -148,6 +150,17 @@ namespace Steading.EditorTools
             var serialized = new SerializedObject(controller);
             serialized.FindProperty("playerPrefab").objectReferenceValue = playerPrefab;
             serialized.FindProperty("worldScenePath").stringValue = WorldScenePath;
+
+            // Wire the imported VikingHero FBX so the menu's character preview
+            // has something to display. PlayerAnimatorBridge drives the Animator
+            // already on the imported rig.
+            var viking = AssetDatabase.LoadAssetAtPath<GameObject>(ImportedVikingHeroPath);
+            if (viking != null)
+            {
+                var prefabProp = serialized.FindProperty("characterPreviewPrefab");
+                if (prefabProp != null) prefabProp.objectReferenceValue = viking;
+            }
+
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
 
