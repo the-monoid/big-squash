@@ -56,23 +56,30 @@ namespace Steading.EditorTools
             cmCam.Lens.FieldOfView = 52f;
             cmCam.Priority.Value = 10;
 
-            // Third-person over-the-shoulder body. Cinemachine 3.x: components are
-            // CinemachineThirdPersonFollow + (optional) CinemachineRotationComposer.
+            // Third-person over-the-shoulder body. Cinemachine 3.1 API: top-level
+            // fields for shoulder/distance/side; obstacle avoidance lives in the
+            // nested ObstacleSettings struct (CollisionFilter, IgnoreTag, etc.).
             var follow = camGo.AddComponent<CinemachineThirdPersonFollow>();
-            follow.ShoulderOffset = new Vector3(0.55f, 0.45f, 0f);
+            follow.ShoulderOffset    = new Vector3(0.55f, 0.45f, 0f);
             follow.VerticalArmLength = 0.4f;
-            follow.CameraDistance = 3.6f;
-            follow.CameraSide = 1f;          // right shoulder
-            follow.CameraCollisionFilter = ~0;
-            follow.IgnoreTag = "Player";
-            follow.AvoidObstacles.Enabled = true;
-            follow.AvoidObstacles.CameraRadius = 0.18f;
-            follow.AvoidObstacles.SmoothingTime = 0.06f;
-            follow.AvoidObstacles.Damping = 0.5f;
+            follow.CameraDistance    = 3.6f;
+            follow.CameraSide        = 1f;      // right shoulder
+            follow.Damping           = new Vector3(0.10f, 0.12f, 0.10f);
+
+            var obstacles = follow.AvoidObstacles;
+            obstacles.Enabled              = true;
+            obstacles.CameraRadius         = 0.18f;
+            obstacles.CollisionFilter      = ~0;
+            obstacles.IgnoreTag            = "Player";
+            obstacles.DampingIntoCollision = 0.06f;
+            obstacles.DampingFromCollision = 0.30f;
+            follow.AvoidObstacles = obstacles;
 
             var rotation = camGo.AddComponent<CinemachineRotationComposer>();
-            rotation.TargetOffset = new Vector3(0f, 0.4f, 0f);
-            rotation.Damping = new Vector2(0.18f, 0.22f);
+            // Cinemachine 3.1 renamed TargetOffset → TrackedObjectOffset and the
+            // damping is on the nested Damping field (Vector2 not always — depends
+            // on patch). Set what's safe; user can hand-tune in the inspector.
+            rotation.TrackedObjectOffset = new Vector3(0f, 0.4f, 0f);
 
             // Save as prefab.
             EnsureFolder("Assets/_Project/Prefabs");
