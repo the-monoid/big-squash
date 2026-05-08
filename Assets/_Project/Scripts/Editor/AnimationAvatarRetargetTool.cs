@@ -80,10 +80,50 @@ namespace Steading.EditorTools
                 importer.sourceAvatar = baseAvatar;
                 importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
                 importer.importAnimation = true;
+
+                // Force loopTime on locomotion clips so the character doesn't
+                // freeze on the last frame mid-run. Mixamo FBX defaults to
+                // loopTime=false for one-shot clips, but Idle/Walk/Run/Block
+                // need to loop.
+                ConfigureClipLoops(importer, path);
+
                 importer.SaveAndReimport();
                 n++;
             }
             return n;
+        }
+
+        // Decide whether each animation clip in the FBX should loop. Locomotion
+        // and held-stance clips loop; one-shot attacks and deaths don't.
+        private static void ConfigureClipLoops(ModelImporter importer, string path)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(path);
+            bool shouldLoop = ShouldLoop(fileName);
+
+            var defaults = importer.defaultClipAnimations;
+            if (defaults == null || defaults.Length == 0) return;
+
+            for (int i = 0; i < defaults.Length; i++)
+            {
+                defaults[i].loopTime = shouldLoop;
+                defaults[i].loopPose = shouldLoop;
+            }
+            importer.clipAnimations = defaults;
+        }
+
+        private static bool ShouldLoop(string fileName)
+        {
+            // Match the convention used by the M3 Setup builders + animator
+            // controller. Anything that's a "stance" or steady-state motion
+            // loops; one-shots don't.
+            string lower = fileName.ToLowerInvariant();
+            return lower.Contains("idle") ||
+                   lower.Contains("walk") ||
+                   lower.Contains("run")  ||
+                   lower.Contains("block") ||
+                   lower.Contains("crouchidle") ||
+                   lower.Contains("powerbashcharge") ||
+                   lower.Contains("breathing");
         }
     }
 }
