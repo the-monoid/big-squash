@@ -76,6 +76,29 @@ namespace Steading.EditorTools
                 cost: Cost((ResourceKind.Wood, 10), (ResourceKind.Iron, 6), (ResourceKind.Steel, 8)),
                 blade: new Color(0.62f, 0.66f, 0.72f), grip: new Color(0.14f, 0.10f, 0.08f)));
 
+            // ---- Pickaxe tiers ----
+            // Pickaxe is the dedicated mining tool. Wood-tier is starter so
+            // new players can knock out copper/bronze nodes immediately.
+            library.weapons.Add(MakeWeapon("WoodPickaxe",       WeaponKind.Pickaxe, WeaponTier.Wood,
+                lightDmg: 8, heavyDmg: 14, lightCD: 0.65f, heavyCD: 1.00f, range: 1.9f,
+                cost: System.Array.Empty<ResourceCost>(), starter: true,
+                blade: new Color(0.55f, 0.40f, 0.22f), grip: new Color(0.40f, 0.26f, 0.12f)));
+
+            library.weapons.Add(MakeWeapon("BronzePickaxe",     WeaponKind.Pickaxe, WeaponTier.Bronze,
+                lightDmg: 14, heavyDmg: 22, lightCD: 0.60f, heavyCD: 0.90f, range: 2.0f,
+                cost: Cost((ResourceKind.Wood, 4), (ResourceKind.Bronze, 5)),
+                blade: new Color(0.85f, 0.55f, 0.20f), grip: new Color(0.36f, 0.22f, 0.10f)));
+
+            library.weapons.Add(MakeWeapon("IronPickaxe",       WeaponKind.Pickaxe, WeaponTier.Iron,
+                lightDmg: 22, heavyDmg: 34, lightCD: 0.55f, heavyCD: 0.85f, range: 2.1f,
+                cost: Cost((ResourceKind.Wood, 6), (ResourceKind.Iron, 7)),
+                blade: new Color(0.78f, 0.80f, 0.84f), grip: new Color(0.20f, 0.16f, 0.12f)));
+
+            library.weapons.Add(MakeWeapon("RusticSteelPickaxe", WeaponKind.Pickaxe, WeaponTier.Steel,
+                lightDmg: 32, heavyDmg: 48, lightCD: 0.52f, heavyCD: 0.80f, range: 2.2f,
+                cost: Cost((ResourceKind.Wood, 8), (ResourceKind.Iron, 5), (ResourceKind.Steel, 6)),
+                blade: new Color(0.62f, 0.66f, 0.72f), grip: new Color(0.14f, 0.10f, 0.08f)));
+
             EditorUtility.SetDirty(library);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

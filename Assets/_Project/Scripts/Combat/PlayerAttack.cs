@@ -103,6 +103,7 @@ namespace Steading.Combat
         // WeaponLibrary drives stats. 0 = wood (starter), 1 = bronze, etc.
         [SyncVar] private int _swordTier = 0;
         [SyncVar] private int _axeTier = 0;
+        [SyncVar] private int _pickaxeTier = 0;
 
         private float _nextAttackTime;
         private float _nextBashTime;
@@ -143,8 +144,9 @@ namespace Steading.Combat
 
             _unlockedWeaponMask |= (1L << weaponIndex);
             // Auto-equip the new tier if it matches the currently-equipped family.
-            if (def.kind == WeaponKind.Sword) _swordTier = (int)def.tier;
-            if (def.kind == WeaponKind.Axe) _axeTier = (int)def.tier;
+            if (def.kind == WeaponKind.Sword)   _swordTier   = (int)def.tier;
+            if (def.kind == WeaponKind.Axe)     _axeTier     = (int)def.tier;
+            if (def.kind == WeaponKind.Pickaxe) _pickaxeTier = (int)def.tier;
         }
 
         // Convenience: server-side seed the starter weapons on spawn.
@@ -179,7 +181,14 @@ namespace Steading.Combat
         {
             var lib = WeaponLibrary.Instance;
             if (lib == null) return null;
-            var targetTier = (_equippedWeapon == WeaponKind.Sword) ? _swordTier : _axeTier;
+            int targetTier;
+            switch (_equippedWeapon)
+            {
+                case WeaponKind.Sword:   targetTier = _swordTier;   break;
+                case WeaponKind.Axe:     targetTier = _axeTier;     break;
+                case WeaponKind.Pickaxe: targetTier = _pickaxeTier; break;
+                default:                 targetTier = 0;            break;
+            }
             for (int i = 0; i < lib.weapons.Count; i++)
             {
                 var w = lib.weapons[i];
@@ -209,6 +218,7 @@ namespace Steading.Combat
 
             if (Input.GetKeyDown(KeyCode.Alpha1)) CmdEquipWeapon(WeaponKind.Sword);
             if (Input.GetKeyDown(KeyCode.Alpha2)) CmdEquipWeapon(WeaponKind.Axe);
+            if (Input.GetKeyDown(KeyCode.Alpha3)) CmdEquipWeapon(WeaponKind.Pickaxe);
 
             if (_buildController != null && _buildController.InBuildMode)
             {
@@ -335,7 +345,7 @@ namespace Steading.Combat
         [Command]
         private void CmdEquipWeapon(WeaponKind weapon)
         {
-            if (weapon != WeaponKind.Sword && weapon != WeaponKind.Axe) return;
+            if (weapon != WeaponKind.Sword && weapon != WeaponKind.Axe && weapon != WeaponKind.Pickaxe) return;
             _equippedWeapon = weapon;
         }
 
@@ -662,7 +672,9 @@ namespace Steading.Combat
         [Server]
         private void TryHitResource(Collider col, WeaponKind weapon, bool heavy, int chopDamageOverride = -1)
         {
-            if (weapon != WeaponKind.Axe) return;
+            // Both axes and pickaxes can hit nodes; ResourceNode itself decides
+            // whether the tool matches via its requiredWeapon field.
+            if (weapon != WeaponKind.Axe && weapon != WeaponKind.Pickaxe) return;
 
             var node = col.GetComponentInParent<ResourceNode>();
             if (node == null || node.IsDepleted || _resourceHitBuffer.Contains(node)) return;
@@ -710,7 +722,18 @@ namespace Steading.Combat
         {
             EnsureWeaponModels();
             if (_visualAnimator == null) _visualAnimator = GetComponent<PlayerAnimatorBridge>();
-            if (_visualAnimator != null) _visualAnimator.PlaySwordAttackPose(heavy, comboStep);
+            // Route to a tool-specific Animator state when the equipped weapon
+            // is an axe (Chop) or pickaxe (Mine) — both feel different from a
+            // sword slash and use the overhead-arc clip.
+            if (_visualAnimator != null)
+            {
+                switch (weapon)
+                {
+                    case WeaponKind.Pickaxe: _visualAnimator.PlayMinePose(); break;
+                    case WeaponKind.Axe:     _visualAnimator.PlayChopPose(); break;
+                    default:                 _visualAnimator.PlaySwordAttackPose(heavy, comboStep); break;
+                }
+            }
 
             if (_swingRoutine != null) StopCoroutine(_swingRoutine);
             _swingRoutine = StartCoroutine(AnimateWeaponSwing(weapon, heavy, comboStep));

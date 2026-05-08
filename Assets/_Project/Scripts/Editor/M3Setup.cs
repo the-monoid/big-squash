@@ -158,12 +158,13 @@ namespace Steading.EditorTools
                 visualScale: new Vector3(0.6f, 3.5f, 0.6f), color: new Color(0.32f, 0.18f, 0.08f), hp: 60, requiredWeapon: WeaponKind.Axe);
             var rockPrefab   = CreateResourceNodePrefab(RockPrefabPath,   "ResourceRock",      ResourceKind.Stone,  yield: 4,
                 visualScale: new Vector3(0.9f, 0.7f, 0.9f), color: new Color(0.55f, 0.55f, 0.58f), hp: 80, requiredWeapon: WeaponKind.Axe);
+            // Ore nodes now require Pickaxe (Phase H).
             var bronzeOre    = CreateResourceNodePrefab(BronzeOrePath,    "ResourceBronzeOre", ResourceKind.Bronze, yield: 3,
-                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.78f, 0.50f, 0.20f), hp: 110, requiredWeapon: WeaponKind.Axe);
+                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.78f, 0.50f, 0.20f), hp: 110, requiredWeapon: WeaponKind.Pickaxe);
             var ironOre      = CreateResourceNodePrefab(IronOrePath,      "ResourceIronOre",   ResourceKind.Iron,   yield: 3,
-                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.62f, 0.55f, 0.50f), hp: 150, requiredWeapon: WeaponKind.Axe);
+                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.62f, 0.55f, 0.50f), hp: 150, requiredWeapon: WeaponKind.Pickaxe);
             var steelOre     = CreateResourceNodePrefab(SteelOrePath,     "ResourceSteelOre",  ResourceKind.Steel,  yield: 2,
-                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.45f, 0.48f, 0.55f), hp: 200, requiredWeapon: WeaponKind.Axe);
+                visualScale: new Vector3(1.1f, 0.9f, 1.1f), color: new Color(0.45f, 0.48f, 0.55f), hp: 200, requiredWeapon: WeaponKind.Pickaxe);
 
             // Tree + Rock prefabs intentionally excluded — codex's ResourceNode is
             // a MonoBehaviour synced by nodeId, not a networked GameObject.

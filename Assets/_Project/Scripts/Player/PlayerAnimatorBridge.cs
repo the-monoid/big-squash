@@ -37,6 +37,8 @@ namespace Steading.Player
         private static readonly int HashCombo       = Animator.StringToHash("Combo");
         private static readonly int HashShieldRush  = Animator.StringToHash("ShieldRush");
         private static readonly int HashPowerBash   = Animator.StringToHash("PowerBash");
+        private static readonly int HashMine        = Animator.StringToHash("Mine");
+        private static readonly int HashChop        = Animator.StringToHash("Chop");
         private static readonly int HashHitReact    = Animator.StringToHash("HitReact");
         private static readonly int HashDie         = Animator.StringToHash("Die");
 
@@ -104,6 +106,8 @@ namespace Steading.Player
         public void PlayShieldBashPose() { if (_animator != null) _animator.SetTrigger(HashShieldRush); }
         public void PlayShieldRushPose() { if (_animator != null) _animator.SetTrigger(HashShieldRush); }
         public void PlayPowerBashPose()  { if (_animator != null) _animator.SetTrigger(HashPowerBash); }
+        public void PlayMinePose()       { if (_animator != null) _animator.SetTrigger(HashMine); }
+        public void PlayChopPose()       { if (_animator != null) _animator.SetTrigger(HashChop); }
 
         public void PlaySkillAttackPose(bool axe)
         {

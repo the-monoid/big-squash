@@ -100,6 +100,8 @@ namespace Steading.EditorTools
             controller.AddParameter("Combo",       AnimatorControllerParameterType.Trigger);
             controller.AddParameter("ShieldRush",  AnimatorControllerParameterType.Trigger);
             controller.AddParameter("PowerBash",   AnimatorControllerParameterType.Trigger);
+            controller.AddParameter("Mine",        AnimatorControllerParameterType.Trigger);
+            controller.AddParameter("Chop",        AnimatorControllerParameterType.Trigger);
             controller.AddParameter("HitReact",    AnimatorControllerParameterType.Trigger);
             controller.AddParameter("Die",         AnimatorControllerParameterType.Trigger);
 
@@ -188,6 +190,13 @@ namespace Steading.EditorTools
             AddTriggeredState(controller, sm, idle, clips, "ShieldRush", "ShieldRush", lookAtTrigger: true);
             AddTriggeredState(controller, sm, idle, clips, "PowerBash",  "PowerBash",  lookAtTrigger: true);
 
+            // Tool-swing variants reuse the PowerBash overhead arc clip but
+            // hang off their own triggers so PlayerAttack can route mining
+            // input independently from sword combat. If a dedicated chop or
+            // mine FBX lands later it slots in by extending ClipMap.
+            AddTriggeredStateAlias(controller, sm, idle, clips, "PowerBash", "Mine", "Mine");
+            AddTriggeredStateAlias(controller, sm, idle, clips, "PowerBash", "Chop", "Chop");
+
             // Block: held loop with bool driving it
             if (clips.TryGetValue("Block", out var blockClip))
             {
@@ -205,6 +214,35 @@ namespace Steading.EditorTools
                 exit.duration = 0.20f;
                 exit.hasExitTime = false;
             }
+        }
+
+        // Variant of AddTriggeredState that reuses an existing clip under a
+        // new state-name + trigger, useful for tool swings that should look
+        // like the sword-overhead PowerBash arc but be input-routable
+        // independently.
+        private static void AddTriggeredStateAlias(AnimatorController controller, AnimatorStateMachine sm,
+            AnimatorState idle, System.Collections.Generic.Dictionary<string, AnimationClip> clips,
+            string sourceClipKey, string stateName, string triggerName)
+        {
+            if (!clips.TryGetValue(sourceClipKey, out var clip)) return;
+
+            var state = sm.AddState(stateName);
+            state.motion = clip;
+            state.speed = 1f;
+            state.writeDefaultValues = false;
+
+            var enter = idle.AddTransition(state);
+            enter.AddCondition(AnimatorConditionMode.If, 0f, triggerName);
+            enter.duration = 0.20f;
+            enter.hasExitTime = false;
+            enter.canTransitionToSelf = false;
+            enter.interruptionSource = TransitionInterruptionSource.Source;
+
+            var exit = state.AddTransition(idle);
+            exit.duration = 0.25f;
+            exit.hasExitTime = true;
+            exit.exitTime = 0.85f;
+            exit.canTransitionToSelf = false;
         }
 
         // Generic helper: triggered one-shot state that auto-returns to Empty on exit.
